@@ -1,0 +1,27 @@
+(2026-10-21T23:41:39+08:00)
+$ git diff --quiet ac3253a -- lib/design.dart
+design.dart: identical to baseline
+
+$ feeder1 in lib/ outside legacy
+lib/features/home/home_shell.dart:13:/// Phase 2; until then no legacy `feeder1` listener is started.
+
+$ legacy screens imported?
+not imported anywhere (not mounted)
+
+$ default Firebase singletons in new code
+none
+
+$ production project id in CLI/emulator logs
+none
+$ deploy cache
+no .firebase deploy cache
+$ .firebaserc
+{
+  "projects": {
+    "default": "demo-agrifeed",
+    "emulator": "demo-agrifeed",
+    "production": "agrifeed-dda82"
+  }
+}
+$ ESP32 sources
+none

@@ -1,0 +1,23 @@
+$ npm ci && npm run test:rules   (2026-10-21T23:40:03+08:00)
+
+> test:rules
+> npm run rules:check && node scripts/run-with-emulators.mjs database -- npx vitest run tests/rules
+
+
+> rules:check
+> node rules/build.mjs --check
+
+database.rules.json is up to date.
+
+ RUN  v5.0.5 C:/dev/agrifeed
+
+
+ Test Files  6 passed (6)
+      Tests  108 passed (108)
+   Start at  23:40:18
+   Duration  16.22s (tests 78%, import 21%, transform 1%)
+
+    Isolate  6 workers spawned · ~239ms startup each (spawn + environment, per file)
+             at least ~1.20s faster with isolate: false — reuses workers across files instead of one per file
+
+exit=0

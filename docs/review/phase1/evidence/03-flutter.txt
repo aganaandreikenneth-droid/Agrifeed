@@ -1,0 +1,35 @@
+$ flutter analyze   (2026-10-21T23:29:33+08:00)
+Analyzing agrifeed...                                           
+No issues found! (ran in 24.2s)
+exit=0
+
+$ flutter test
+00:00 +0: loading C:/dev/agrifeed/test/session_test.dart
+00:00 +0: C:/dev/agrifeed/test/session_test.dart: resolveSession signed out wins over everything
+00:00 +1: C:/dev/agrifeed/test/session_test.dart: resolveSession unverified users never reach the database-backed screens
+00:00 +2: C:/dev/agrifeed/test/session_test.dart: resolveSession waits for account status before routing
+00:00 +3: C:/dev/agrifeed/test/session_test.dart: resolveSession suspension overrides the admin role
+00:00 +4: C:/dev/agrifeed/test/session_test.dart: resolveSession suspension reason is passed through
+00:00 +5: C:/dev/agrifeed/test/session_test.dart: resolveSession waits for the profile before routing
+00:00 +6: C:/dev/agrifeed/test/session_test.dart: resolveSession routes admins and users
+00:00 +7: C:/dev/agrifeed/test/session_test.dart: resolveSession errors are shown for verified users
+00:00 +8: C:/dev/agrifeed/test/session_test.dart: environment emulator is allowed
+00:00 +9: C:/dev/agrifeed/test/session_test.dart: environment production is blocked in this build
+00:00 +10: C:/dev/agrifeed/test/session_test.dart: environment unknown names are rejected rather than defaulted
+00:00 +11: C:/dev/agrifeed/test/session_test.dart: environment emulator project cannot be a real project
+00:00 +12: C:/dev/agrifeed/test/session_test.dart: validateAuthForm accepts a valid registration
+00:00 +13: C:/dev/agrifeed/test/session_test.dart: validateAuthForm requires a name when registering
+00:00 +14: C:/dev/agrifeed/test/session_test.dart: validateAuthForm rejects malformed email
+00:00 +15: C:/dev/agrifeed/test/session_test.dart: validateAuthForm requires 8+ characters for new passwords
+00:00 +16: C:/dev/agrifeed/test/session_test.dart: validateAuthForm requires matching confirmation
+00:00 +17: C:/dev/agrifeed/test/session_test.dart: validateAuthForm existing users may sign in with older short passwords
+00:00 +18: C:/dev/agrifeed/test/session_test.dart: display names are trimmed, defaulted and capped
+00:00 +19: C:/dev/agrifeed/test/widget_test.dart: blocked startup shows the reason and never builds the login
+00:02 +20: C:/dev/agrifeed/test/widget_test.dart: sign-in with empty fields shows a validation error
+00:03 +21: C:/dev/agrifeed/test/widget_test.dart: create-account mode enforces the minimum password length
+00:04 +22: C:/dev/agrifeed/test/widget_test.dart: valid sign-in form calls the auth service
+00:04 +23: C:/dev/agrifeed/test/widget_test.dart: no-feeder state explains next steps and disables unavailable actions
+00:04 +24: C:/dev/agrifeed/test/widget_test.dart: text prompt returns the value and closes cleanly
+00:04 +25: C:/dev/agrifeed/test/widget_test.dart: forgot password sends the reset and shows a neutral message
+00:05 +26: All tests passed!
+exit=0

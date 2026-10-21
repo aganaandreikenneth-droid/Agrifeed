@@ -1,0 +1,403 @@
+{
+  "rules": {
+    "users": {
+      ".read": "(((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.token.admin == true && root.child('platformAdmins').child(auth.uid).val() == true)",
+      "$uid": {
+        ".read": "(((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.uid == $uid)",
+        ".write": "((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.uid == $uid) && !data.exists() && newData.exists())",
+        ".validate": "newData.hasChildren(['displayName', 'createdAt'])",
+        "displayName": {
+          ".write": "((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.uid == $uid) && newData.exists())",
+          ".validate": "(newData.isString() && newData.val().length >= 1 && newData.val().length <= 60)"
+        },
+        "createdAt": {
+          ".validate": "((!data.exists() && newData.val() == now) || newData.val() == data.val())"
+        },
+        "lastSelectedFeederId": {
+          ".write": "(((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.uid == $uid)",
+          ".validate": "(newData.isString() && root.child('userFeeders').child($uid).child(newData.val()).exists())"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "accountStatus": {
+      ".read": "(((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.token.admin == true && root.child('platformAdmins').child(auth.uid).val() == true)",
+      "$uid": {
+        ".read": "((auth != null && auth.token.device != true && auth.token.email_verified == true) && auth.uid == $uid)"
+      }
+    },
+    "platformAdmins": {
+      ".read": "(((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.token.admin == true && root.child('platformAdmins').child(auth.uid).val() == true)"
+    },
+    "platformAudit": {
+      ".read": "(((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.token.admin == true && root.child('platformAdmins').child(auth.uid).val() == true)",
+      ".indexOn": [
+        "ts"
+      ]
+    },
+    "deviceRegistry": {
+      ".read": "(((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.token.admin == true && root.child('platformAdmins').child(auth.uid).val() == true)"
+    },
+    "userFeeders": {
+      "$uid": {
+        ".read": "(((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.uid == $uid)"
+      }
+    },
+    "notifications": {
+      "$uid": {
+        ".read": "(((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.uid == $uid)",
+        ".indexOn": [
+          "ts"
+        ],
+        "$nid": {
+          ".write": "((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.uid == $uid) && data.exists() && !newData.exists())",
+          ".validate": "newData.hasChildren(['type', 'title', 'ts'])",
+          "read": {
+            ".write": "((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.uid == $uid) && data.parent().exists() && newData.exists())",
+            ".validate": "newData.isBoolean()"
+          }
+        }
+      }
+    },
+    "notificationPreferences": {
+      "$uid": {
+        ".read": "(((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.uid == $uid)",
+        ".write": "(((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.uid == $uid)",
+        "lowFeed": {
+          ".validate": "newData.isBoolean()"
+        },
+        "stuckFeed": {
+          ".validate": "newData.isBoolean()"
+        },
+        "connectivity": {
+          ".validate": "newData.isBoolean()"
+        },
+        "feedingCompleted": {
+          ".validate": "newData.isBoolean()"
+        },
+        "feedingFailed": {
+          ".validate": "newData.isBoolean()"
+        },
+        "critical": {
+          ".validate": "newData.isBoolean()"
+        },
+        "push": {
+          ".validate": "newData.isBoolean()"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "feeders": {
+      "$feederId": {
+        "meta": {
+          ".read": "((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) || (auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()))",
+          "name": {
+            ".write": "(((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) && newData.exists())",
+            ".validate": "(newData.isString() && newData.val().length >= 1 && newData.val().length <= 40)"
+          },
+          "timezone": {
+            ".write": "(((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) && newData.exists())",
+            ".validate": "(newData.isString() && newData.val().matches(/^(UTC|[A-Za-z]+\\/[A-Za-z0-9_+-]+(\\/[A-Za-z0-9_+-]+)?)$/))"
+          }
+        },
+        "config": {
+          ".read": "((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) || (auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()))",
+          "capacityG": {
+            ".write": "(((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) && newData.exists())",
+            ".validate": "((newData.isNumber() && newData.val() >= 100 && newData.val() <= 50000) && (!(root.child('feeders').child($feederId).child('config/loadCellMaxG').exists()) || newData.val() <= root.child('feeders').child($feederId).child('config/loadCellMaxG').val()))"
+          },
+          "lowThresholdG": {
+            ".write": "(((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) && newData.exists())",
+            ".validate": "((newData.isNumber() && newData.val() >= 0 && newData.val() <= 50000) && (!(newData.parent().child('capacityG').exists()) || newData.val() < newData.parent().child('capacityG').val()))"
+          },
+          "maxDispenseG": {
+            ".write": "(((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) && newData.exists())",
+            ".validate": "(newData.isNumber() && newData.val() >= 1 && newData.val() <= 500)"
+          },
+          "schedulesPaused": {
+            ".write": "((((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('manageSchedules').val() == true)) && newData.exists())",
+            ".validate": "newData.isBoolean()"
+          },
+          "calibrationStatus": {
+            ".write": "((auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()) && newData.exists())",
+            ".validate": "(newData.isString() && newData.val().matches(/^(uncalibrated|needs-calibration|calibrated)$/))"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "members": {
+          ".read": "((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid)",
+          "$uid": {
+            ".read": "(((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && auth.uid == $uid)"
+          }
+        },
+        "status": {
+          ".read": "((((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('viewDashboard').val() == true)) || (auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()))",
+          ".write": "((auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()) && newData.exists())",
+          ".validate": "(newData.hasChildren(['lastSeen', 'condition', 'source']) && ((root.child('deviceRegistry').child($feederId).child('mode').val() == 'simulated' && newData.child('source').val() == 'simulator') || (root.child('deviceRegistry').child($feederId).child('mode').val() == 'live' && newData.child('source').val() == 'device')))",
+          "lastSeen": {
+            ".validate": "newData.val() == now"
+          },
+          "condition": {
+            ".validate": "(newData.isString() && newData.val().matches(/^(ok|jam|low_feed|error|unknown)$/))"
+          },
+          "rssi": {
+            ".validate": "(newData.isNumber() && newData.val() >= -150 && newData.val() <= 0)"
+          },
+          "firmware": {
+            ".validate": "(newData.isString() && newData.val().length >= 1 && newData.val().length <= 32)"
+          },
+          "source": {
+            ".validate": "newData.isString()"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "telemetry": {
+          ".read": "((((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('viewDashboard').val() == true)) || (auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()))",
+          "current": {
+            ".write": "((auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()) && newData.exists())",
+            ".validate": "(newData.hasChildren(['weightG', 'measuredAt', 'quality', 'source']) && ((root.child('deviceRegistry').child($feederId).child('mode').val() == 'simulated' && newData.child('source').val() == 'simulator') || (root.child('deviceRegistry').child($feederId).child('mode').val() == 'live' && newData.child('source').val() == 'device')))",
+            "weightG": {
+              ".validate": "(newData.isNumber() && newData.val() >= -500 && newData.val() <= 100000)"
+            },
+            "measuredAt": {
+              ".validate": "newData.val() == now"
+            },
+            "quality": {
+              ".validate": "(newData.isString() && newData.val().matches(/^(ok|unstable|error)$/))"
+            },
+            "source": {
+              ".validate": "newData.isString()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "measurements": {
+          ".read": "((((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('viewAnalytics').val() == true)) || (((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('viewHistory').val() == true)))",
+          ".indexOn": [
+            "ts"
+          ],
+          "$mid": {
+            ".write": "((auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()) && !data.exists() && newData.exists())",
+            ".validate": "(newData.hasChildren(['weightG', 'ts', 'source']) && ((root.child('deviceRegistry').child($feederId).child('mode').val() == 'simulated' && newData.child('source').val() == 'simulator') || (root.child('deviceRegistry').child($feederId).child('mode').val() == 'live' && newData.child('source').val() == 'device')))",
+            "weightG": {
+              ".validate": "(newData.isNumber() && newData.val() >= -500 && newData.val() <= 100000)"
+            },
+            "ts": {
+              ".validate": "newData.val() == now"
+            },
+            "source": {
+              ".validate": "newData.isString()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "history": {
+          ".read": "((((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('viewHistory').val() == true)) || (((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('viewAnalytics').val() == true)))",
+          ".indexOn": [
+            "ts"
+          ],
+          "$eid": {
+            ".write": "((auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()) && !data.exists() && newData.exists())",
+            ".validate": "(newData.hasChildren(['method', 'requestedG', 'status', 'ts', 'source']) && ((root.child('deviceRegistry').child($feederId).child('mode').val() == 'simulated' && newData.child('source').val() == 'simulator') || (root.child('deviceRegistry').child($feederId).child('mode').val() == 'live' && newData.child('source').val() == 'device')))",
+            "method": {
+              ".validate": "(newData.isString() && newData.val().matches(/^(scheduled|manual)$/))"
+            },
+            "requestedG": {
+              ".validate": "(newData.isNumber() && newData.val() >= 1 && newData.val() <= 500)"
+            },
+            "actualG": {
+              ".validate": "(newData.isNumber() && newData.val() >= 0 && newData.val() <= 2000)"
+            },
+            "status": {
+              ".validate": "(newData.isString() && newData.val().matches(/^(completed|partial|failed|rejected|expired)$/))"
+            },
+            "ts": {
+              ".validate": "newData.val() == now"
+            },
+            "commandId": {
+              ".validate": "(newData.isString() && newData.val().length >= 1 && newData.val().length <= 64)"
+            },
+            "scheduleId": {
+              ".validate": "(newData.isString() && newData.val().length >= 1 && newData.val().length <= 64)"
+            },
+            "source": {
+              ".validate": "newData.isString()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "alerts": {
+          ".read": "(((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('viewDashboard').val() == true))",
+          ".indexOn": [
+            "lastAt"
+          ],
+          "$aid": {
+            ".write": "((auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()) && newData.exists())",
+            ".validate": "(newData.hasChildren(['type', 'severity', 'state', 'firstAt', 'lastAt', 'source']) && ((root.child('deviceRegistry').child($feederId).child('mode').val() == 'simulated' && newData.child('source').val() == 'simulator') || (root.child('deviceRegistry').child($feederId).child('mode').val() == 'live' && newData.child('source').val() == 'device')))",
+            "type": {
+              ".validate": "(newData.isString() && newData.val().matches(/^(low_feed|stuck_feed|sensor_error|dispense_failed)$/))"
+            },
+            "severity": {
+              ".validate": "(newData.isString() && newData.val().matches(/^(info|warning|critical)$/))"
+            },
+            "state": {
+              ".validate": "(newData.isString() && newData.val().matches(/^(active|resolved)$/))"
+            },
+            "firstAt": {
+              ".validate": "((!data.exists() && newData.val() == now) || newData.val() == data.val())"
+            },
+            "lastAt": {
+              ".validate": "newData.val() == now"
+            },
+            "source": {
+              ".validate": "newData.isString()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "audit": {
+          ".read": "((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid)",
+          ".indexOn": [
+            "ts"
+          ]
+        },
+        "schedules": {
+          ".read": "((((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('viewDashboard').val() == true)) || (((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('manageSchedules').val() == true)) || (auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()))",
+          "$sid": {
+            ".write": "(((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('manageSchedules').val() == true))",
+            ".validate": "newData.hasChildren(['time', 'weekdays', 'amountG', 'enabled', 'createdAt', 'updatedAt', 'updatedBy'])",
+            "time": {
+              ".validate": "(newData.isString() && newData.val().matches(/^([01][0-9]|2[0-3]):[0-5][0-9]$/))"
+            },
+            "weekdays": {
+              "$day": {
+                ".validate": "($day.matches(/^[0-6]$/) && newData.isBoolean())"
+              }
+            },
+            "amountG": {
+              ".validate": "(newData.isNumber() && newData.val() >= 1 && newData.val() <= 500 && (!(root.child('feeders').child($feederId).child('config/maxDispenseG').exists()) || newData.val() <= root.child('feeders').child($feederId).child('config/maxDispenseG').val()))"
+            },
+            "enabled": {
+              ".validate": "newData.isBoolean()"
+            },
+            "label": {
+              ".validate": "(newData.isString() && newData.val().length >= 1 && newData.val().length <= 40)"
+            },
+            "createdAt": {
+              ".validate": "((!data.exists() && newData.val() == now) || newData.val() == data.val())"
+            },
+            "updatedAt": {
+              ".validate": "newData.val() == now"
+            },
+            "updatedBy": {
+              ".validate": "newData.val() == auth.uid"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "activeCommand": {
+          ".read": "((((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('manualFeed').val() == true)) || (((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('viewDashboard').val() == true)) || (auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()))",
+          ".write": "(((((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('manualFeed').val() == true)) && !data.exists() && newData.exists() && !data.parent().child('commands').child(newData.child('commandId').val()).exists() && newData.parent().child('commands').child(newData.child('commandId').val()).child('requestedBy').val() == auth.uid) || ((auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()) && data.exists() && !newData.exists()) || ((((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('manualFeed').val() == true)) && data.exists() && !newData.exists() && newData.parent().child('commands').child(data.child('commandId').val()).child('status').val().matches(/^(completed|partial|failed|rejected|expired)$/)))",
+          ".validate": "newData.hasChildren(['commandId', 'requestedAt'])",
+          "commandId": {
+            ".validate": "(newData.isString() && newData.val().length >= 1 && newData.val().length <= 64)"
+          },
+          "requestedAt": {
+            ".validate": "newData.val() == now"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "commands": {
+          ".read": "((((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('manualFeed').val() == true)) || (((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('viewHistory').val() == true)) || (auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()))",
+          ".indexOn": [
+            "requestedAt"
+          ],
+          "$cid": {
+            ".write": "(((((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('manualFeed').val() == true)) && !data.exists() && newData.exists() && !root.child('feeders').child($feederId).child('activeCommand').exists() && newData.parent().parent().child('activeCommand/commandId').val() == $cid) || ((auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val()) && data.exists() && newData.exists()) || ((((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'member' && root.child('feeders').child($feederId).child('members').child(auth.uid).child('permissions').child('manualFeed').val() == true)) && data.child('requestedBy').val() == auth.uid)) && data.exists() && newData.exists() && data.child('status').val() == 'pending' && data.child('requestedAt').val() + 120000 < now && newData.child('status').val() == 'expired'))",
+            ".validate": "newData.hasChildren(['amountG', 'requestedBy', 'requestedAt', 'status', 'source'])",
+            "amountG": {
+              ".validate": "((!data.exists() && (newData.isNumber() && newData.val() >= 1 && newData.val() <= 500 && (!(root.child('feeders').child($feederId).child('config/maxDispenseG').exists()) || newData.val() <= root.child('feeders').child($feederId).child('config/maxDispenseG').val()))) || newData.val() == data.val())"
+            },
+            "requestedBy": {
+              ".validate": "((!data.exists() && newData.val() == auth.uid) || newData.val() == data.val())"
+            },
+            "requestedAt": {
+              ".validate": "((!data.exists() && newData.val() == now) || newData.val() == data.val())"
+            },
+            "source": {
+              ".validate": "((!data.exists() && newData.val() == 'app') || newData.val() == data.val())"
+            },
+            "status": {
+              ".validate": "((!data.exists() && newData.val() == 'pending') || newData.val() == data.val() || (data.val() == 'pending' && newData.val().matches(/^(accepted|rejected|expired)$/)) || (data.val() == 'accepted' && newData.val().matches(/^(dispensing|failed|expired)$/)) || (data.val() == 'dispensing' && newData.val().matches(/^(completed|partial|failed)$/)))"
+            },
+            "actualG": {
+              ".validate": "(auth.token.device == true && (newData.isNumber() && newData.val() >= 0 && newData.val() <= 2000))"
+            },
+            "acceptedAt": {
+              ".validate": "(auth.token.device == true && ((!data.exists() && newData.val() == now) || newData.val() == data.val()))"
+            },
+            "completedAt": {
+              ".validate": "(auth.token.device == true && ((!data.exists() && newData.val() == now) || newData.val() == data.val()))"
+            },
+            "reason": {
+              ".validate": "(auth.token.device == true && (newData.isString() && newData.val().length >= 1 && newData.val().length <= 120))"
+            },
+            "executedBy": {
+              ".validate": "(auth.token.device == true && ((root.child('deviceRegistry').child($feederId).child('mode').val() == 'simulated' && newData.val() == 'simulator') || (!(root.child('deviceRegistry').child($feederId).child('mode').val() == 'simulated') && newData.val() == 'device')))"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "simulator": {
+          "controls": {
+            ".read": "(root.child('deviceRegistry').child($feederId).child('mode').val() == 'simulated' && (((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid) || (auth != null && auth.token.device == true && auth.token.feederId == $feederId && auth.uid == root.child('deviceRegistry').child($feederId).child('deviceUid').val() && root.child('deviceRegistry').child($feederId).child('status').val() == 'active' && auth.token.mode == root.child('deviceRegistry').child($feederId).child('mode').val() && auth.token.credVersion == root.child('deviceRegistry').child($feederId).child('credentialVersion').val())))",
+            ".write": "(root.child('deviceRegistry').child($feederId).child('mode').val() == 'simulated' && ((((auth != null && auth.token.device != true && auth.token.email_verified == true) && root.child('accountStatus').child(auth.uid).child('suspended').val() != true) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('status').val() == 'active' && (!(root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').exists()) || root.child('feeders').child($feederId).child('members').child(auth.uid).child('expiresAt').val() > now)) && root.child('feeders').child($feederId).child('members').child(auth.uid).child('role').val() == 'owner' && root.child('feeders').child($feederId).child('meta').child('ownerUid').val() == auth.uid))",
+            "hopperWeightG": {
+              ".validate": "(newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000)"
+            },
+            "connected": {
+              ".validate": "newData.isBoolean()"
+            },
+            "jam": {
+              ".validate": "newData.isBoolean()"
+            },
+            "failureRate": {
+              ".validate": "(newData.isNumber() && newData.val() >= 0 && newData.val() <= 1)"
+            },
+            "scenario": {
+              ".validate": "(newData.isString() && newData.val().length >= 1 && newData.val().length <= 40)"
+            },
+            "updatedAt": {
+              ".validate": "newData.val() == now"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        }
+      }
+    }
+  }
+}

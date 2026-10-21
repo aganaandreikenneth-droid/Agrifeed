@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "demo-agrifeed",
+    "emulator": "demo-agrifeed",
+    "production": "agrifeed-dda82"
+  }
+}

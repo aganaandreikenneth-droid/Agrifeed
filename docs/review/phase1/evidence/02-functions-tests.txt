@@ -1,0 +1,23 @@
+$ npm run test:functions   (2026-10-21T23:40:35+08:00)
+
+> test:functions
+> npm run functions:build && node scripts/run-with-emulators.mjs auth,database,functions -- npx vitest run tests/functions
+
+
+> functions:build
+> npm --prefix functions run build
+
+
+> build
+> tsc
+
+
+ RUN  v5.0.5 C:/dev/agrifeed
+
+
+ Test Files  1 passed (1)
+      Tests  15 passed (15)
+   Start at  23:41:07
+   Duration  16.72s (tests 96%, import 3%)
+
+exit=0

@@ -62,3 +62,4 @@ ui-debug.log
 *-adminsdk-*.json
 .env
 .env.*
+.firebase-lan.json

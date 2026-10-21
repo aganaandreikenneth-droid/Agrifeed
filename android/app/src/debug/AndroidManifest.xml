@@ -4,4 +4,7 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Debug builds only: the Firebase Emulator Suite on the development PC
+         is served over plain HTTP. Release builds keep cleartext disabled. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

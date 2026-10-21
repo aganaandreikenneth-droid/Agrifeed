@@ -1,0 +1,47 @@
+## Root tooling (local tests and scripts only; not deployed, not in the app)   (2026-10-21T23:30:22+08:00)
+$ npm ls @grpc/grpc-js
+agrifeed-tooling@ C:\dev\agrifeed
+├─┬ firebase-admin@14.5.0
+│ └─┬ @google-cloud/firestore@9.3.1
+│   ├─┬ @google-cloud/firestore-api@0.2.0
+│   │ └─┬ google-gax@5.0.8
+│   │   └── @grpc/grpc-js@1.14.6 deduped
+│   └─┬ google-gax@6.13.0
+│     └── @grpc/grpc-js@1.14.6 deduped
+└─┬ firebase@12.19.0
+  └─┬ @firebase/firestore@4.17.2 overridden
+    └── @grpc/grpc-js@1.14.6
+
+
+$ npm audit
+found 0 vulnerabilities
+
+## Deployable Cloud Functions (functions/)
+$ npm --prefix functions ls @grpc/grpc-js
+agrifeed-functions@ C:\dev\agrifeed\functions
+└─┬ firebase-admin@14.5.0
+  └─┬ @google-cloud/firestore@9.3.1
+    ├─┬ @google-cloud/firestore-api@0.2.0
+    │ └─┬ google-gax@5.0.8
+    │   └── @grpc/grpc-js@1.14.6 deduped
+    └─┬ google-gax@6.13.0
+      └── @grpc/grpc-js@1.14.6
+
+$ npm --prefix functions audit
+found 0 vulnerabilities
+
+## Override in package.json
+{
+  "@firebase/app": "0.16.3",
+  "@firebase/app-compat": "0.5.19",
+  "@firebase/firestore": {
+    "@grpc/grpc-js": "1.14.6"
+  }
+}
+
+## Flutter app (pubspec.yaml): Dart packages, no npm/grpc-js
+37:  firebase_core: ^4.15.0
+38:  firebase_auth: ^6.7.0
+39:  firebase_database: ^12.6.0
+40:  google_sign_in: ^7.2.0
+41:  cloud_functions: ^6.5.0

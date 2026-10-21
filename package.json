@@ -1,0 +1,31 @@
+{
+  "name": "agrifeed-tooling",
+  "private": true,
+  "type": "module",
+  "description": "Rules build, emulator scripts and automated Firebase tests for AgriFeed (local only).",
+  "scripts": {
+    "rules:build": "node rules/build.mjs",
+    "rules:check": "node rules/build.mjs --check",
+    "functions:build": "npm --prefix functions run build",
+    "emulators": "npm run rules:build && npm run functions:build && firebase emulators:start --project demo-agrifeed",
+    "test:rules": "npm run rules:check && node scripts/run-with-emulators.mjs database -- npx vitest run tests/rules",
+    "test:functions": "npm run functions:build && node scripts/run-with-emulators.mjs auth,database,functions -- npx vitest run tests/functions",
+    "test": "npm run test:rules && npm run test:functions",
+    "seed": "node scripts/seed-emulator.mjs",
+    "bootstrap-admin": "node scripts/bootstrap-admin.mjs",
+    "emulators:lan": "npm run rules:build && npm run functions:build && node scripts/emulators-lan.mjs"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.19.0",
+    "firebase-admin": "^14.5.0",
+    "vitest": "^5.0.5"
+  },
+  "overrides": {
+    "@firebase/app": "0.16.3",
+    "@firebase/app-compat": "0.5.19",
+    "@firebase/firestore": {
+      "@grpc/grpc-js": "1.14.6"
+    }
+  }
+}
