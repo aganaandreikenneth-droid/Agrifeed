@@ -1,0 +1,23 @@
+$ git diff --quiet ac3253a -- lib/design.dart
+design.dart: identical to baseline
+
+$ hardcoded feeder1 in functions/src
+none
+
+$ production project id in functions/src, tests, scripts, rules
+none
+
+$ deploy cache
+no .firebase deploy cache
+
+$ .firebaserc
+{
+  "projects": {
+    "default": "demo-agrifeed",
+    "emulator": "demo-agrifeed",
+    "production": "agrifeed-dda82"
+  }
+}
+
+$ ESP32 sources
+none

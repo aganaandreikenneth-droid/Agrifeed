@@ -38,6 +38,8 @@ for (const name of wanted) {
 const emu = spawn('firebase', ['emulators:start', '--project', 'demo-agrifeed', '--only', only], {
   shell: true,
   stdio: ['ignore', 'pipe', 'pipe'],
+  // The CLI's default 10 s for loading function definitions is too short on a busy PC.
+  env: { ...process.env, FUNCTIONS_DISCOVERY_TIMEOUT: process.env.FUNCTIONS_DISCOVERY_TIMEOUT || '60' },
 });
 let log = '';
 emu.stdout.on('data', (d) => (log += d));
@@ -57,6 +59,13 @@ while (!log.includes('All emulators ready')) {
     process.exit(1);
   }
   await new Promise((r) => setTimeout(r, 300));
+}
+
+// Without loaded functions every callable test fails with "not-found"; say so instead.
+if (wanted.includes('functions') && !log.includes('Loaded functions definitions')) {
+  console.error('The Functions emulator did not load the function definitions:\n' + log);
+  stopEmulators();
+  process.exit(1);
 }
 
 const env = {

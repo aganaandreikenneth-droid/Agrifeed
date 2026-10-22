@@ -72,6 +72,13 @@ const isDevice = and(
 
 const isSimFeeder = `${REG}.child('mode').val() == 'simulated'`;
 
+/**
+ * Archived feeders (Phase 2, archiveFeeder) are read-only for people: every
+ * app write grant below requires this. Devices are stopped separately by the
+ * registry status. Releasing a lock or expiring a stale command stays allowed.
+ */
+const notArchived = not(`${FEEDER}.child('meta').child('archivedAt').exists()`);
+
 /** Device-written records must declare where they came from, matching the feeder mode. */
 const sourceMatchesMode = or(
   and(`${REG}.child('mode').val() == 'simulated'`, "newData.child('source').val() == 'simulator'"),
@@ -127,7 +134,9 @@ export const rules = {
     platformAdmins: { '.read': isAdmin },
     platformAudit: { '.read': isAdmin, '.indexOn': ['ts'] },
     deviceRegistry: { '.read': isAdmin },
-    // deviceClaims, invitations: no client access at all (Cloud Functions only).
+    platformConfig: { '.read': isAdmin },
+    // No client access at all (Cloud Functions only): deviceClaims, invitations,
+    // inviteCodes, userQuotas, rateLimits.
 
     userFeeders: {
       $uid: { '.read': own('$uid') },
@@ -169,9 +178,9 @@ export const rules = {
         // ownerUid, mode, createdAt are set by the backend and never by clients.
         meta: {
           '.read': or(isActiveMember, isDevice),
-          name: { '.write': and(isOwner, 'newData.exists()'), '.validate': str(1, 40) },
+          name: { '.write': and(isOwner, notArchived, 'newData.exists()'), '.validate': str(1, 40) },
           timezone: {
-            '.write': and(isOwner, 'newData.exists()'),
+            '.write': and(isOwner, notArchived, 'newData.exists()'),
             '.validate': and('newData.isString()', 'newData.val().matches(/^(UTC|[A-Za-z]+\\/[A-Za-z0-9_+-]+(\\/[A-Za-z0-9_+-]+)?)$/)'),
           },
         },
@@ -179,21 +188,21 @@ export const rules = {
         config: {
           '.read': or(isActiveMember, isDevice),
           capacityG: {
-            '.write': and(isOwner, 'newData.exists()'),
+            '.write': and(isOwner, notArchived, 'newData.exists()'),
             '.validate': and(
               num(100, 50000),
               or(not(`${FEEDER}.child('config/loadCellMaxG').exists()`), `newData.val() <= ${FEEDER}.child('config/loadCellMaxG').val()`),
             ),
           },
           lowThresholdG: {
-            '.write': and(isOwner, 'newData.exists()'),
+            '.write': and(isOwner, notArchived, 'newData.exists()'),
             '.validate': and(
               num(0, 50000),
               or(not("newData.parent().child('capacityG').exists()"), "newData.val() < newData.parent().child('capacityG').val()"),
             ),
           },
-          maxDispenseG: { '.write': and(isOwner, 'newData.exists()'), '.validate': num(1, HARD_MAX_DISPENSE_G) },
-          schedulesPaused: { '.write': and(hasPerm('manageSchedules'), 'newData.exists()'), '.validate': 'newData.isBoolean()' },
+          maxDispenseG: { '.write': and(isOwner, notArchived, 'newData.exists()'), '.validate': num(1, HARD_MAX_DISPENSE_G) },
+          schedulesPaused: { '.write': and(hasPerm('manageSchedules'), notArchived, 'newData.exists()'), '.validate': 'newData.isBoolean()' },
           calibrationStatus: {
             '.write': and(isDevice, 'newData.exists()'),
             '.validate': oneOf('uncalibrated', 'needs-calibration', 'calibrated'),
@@ -207,6 +216,9 @@ export const rules = {
           $uid: { '.read': and(isUser, 'auth.uid == $uid') },
           // Written only by Cloud Functions (invitations, permission changes).
         },
+
+        // Invitation summaries (no code or hash), written only by Cloud Functions.
+        invites: { '.read': isOwner, '.indexOn': ['status'] },
 
         status: {
           '.read': or(hasPerm('viewDashboard'), isDevice),
@@ -290,7 +302,7 @@ export const rules = {
         schedules: {
           '.read': or(hasPerm('viewDashboard'), hasPerm('manageSchedules'), isDevice),
           $sid: {
-            '.write': hasPerm('manageSchedules'), // create, edit and delete
+            '.write': and(hasPerm('manageSchedules'), notArchived), // create, edit and delete
             '.validate': "newData.hasChildren(['time', 'weekdays', 'amountG', 'enabled', 'createdAt', 'updatedAt', 'updatedBy'])",
             time: { '.validate': and('newData.isString()', 'newData.val().matches(/^([01][0-9]|2[0-3]):[0-5][0-9]$/)') },
             weekdays: {
@@ -312,6 +324,7 @@ export const rules = {
           '.write': or(
             and(
               hasPerm('manualFeed'),
+              notArchived,
               '!data.exists()',
               'newData.exists()',
               "!data.parent().child('commands').child(newData.child('commandId').val()).exists()",
@@ -340,6 +353,7 @@ export const rules = {
               // 1. An authorised user requests feeding (requires taking the lock).
               and(
                 hasPerm('manualFeed'),
+                notArchived,
                 '!data.exists()',
                 'newData.exists()',
                 `!${FEEDER}.child('activeCommand').exists()`,
@@ -390,7 +404,7 @@ export const rules = {
         simulator: {
           controls: {
             '.read': and(isSimFeeder, or(isOwner, isDevice)),
-            '.write': and(isSimFeeder, isOwner),
+            '.write': and(isSimFeeder, isOwner, notArchived),
             hopperWeightG: { '.validate': num(0, 100000) },
             connected: { '.validate': 'newData.isBoolean()' },
             jam: { '.validate': 'newData.isBoolean()' },

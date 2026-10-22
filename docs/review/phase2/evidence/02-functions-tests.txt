@@ -1,0 +1,35 @@
+$ npm run test:functions   (complete run on the final functions code: agrifeed_fn5.log)
+  each file runs in its own emulator session (see docs/phase2.md, Tooling change)
+> test:functions:admin
+ Test Files  1 passed (1)
+      Tests  15 passed (15)
+   Duration  16.23s (tests 96%, import 3%)
+> test:functions:feeders
+ Test Files  1 passed (1)
+      Tests  27 passed (27)
+   Duration  51.37s (tests 99%, import 1%)
+> test:functions:races
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Duration  31.81s (tests 98%, import 2%)
+exit=0
+
+$ npm test   (2026-10-22T11:26:59+08:00)  [final combined run]
+ Test Files  7 passed (7)
+      Tests  120 passed (120)
+   Duration  18.59s (tests 78%, import 21%)
+> test:functions:admin
+ Test Files  1 passed (1)
+      Tests  15 passed (15)
+   Duration  15.66s (tests 96%, import 3%)
+> test:functions:feeders
+STOPPED by the Claude Code harness during test:functions:feeders because the PC was critically low on memory
+(not a test failure; nothing failed before it was stopped). No code changed between the two runs except docs.
+
+$ mutation check: old delete-member behaviour injected into functions/lib only, then npm run test:functions:races
+     × removal during an interrupted acceptance: the retry does not re-add the member 3664ms
+     × removal racing the retry of an interrupted acceptance always ends revoked 227ms
+     × removal racing a retry of a completed acceptance always ends revoked 232ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 4 passed (7)
+exit=1 (expected: the race tests detect the old bug); functions rebuilt from source afterwards

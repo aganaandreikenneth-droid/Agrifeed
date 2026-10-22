@@ -1,0 +1,12 @@
+$ npm test   (2026-10-22T11:26:59+08:00)  [rules part of the final run]
+> test:rules
+> npm run rules:check && node scripts/run-with-emulators.mjs database -- npx vitest run tests/rules
+> rules:check
+> node rules/build.mjs --check
+database.rules.json is up to date.
+ RUN  v5.0.5 C:/dev/agrifeed
+ Test Files  7 passed (7)
+      Tests  120 passed (120)
+   Start at  11:24:44
+   Duration  18.59s (tests 78%, import 21%)
+exit=0 (rules part)
