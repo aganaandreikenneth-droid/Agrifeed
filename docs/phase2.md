@@ -191,3 +191,101 @@ write.
 - Invitations are not shown or managed in the app until 2C. The app does not call any 2A function
   until 2B/2C.
 - `deviceRegistry` tombstones and `platformAudit` grow without bound. Retention policy: Phase 9.
+
+---
+
+## Milestone 2B: dynamic feeder selection (Flutter)
+
+No backend or rules changes. Production untouched; nothing deployed.
+
+### What the app does now
+
+- **Feeder list from the database.** `FeederSelectionController` (`lib/services/feeder_selection.dart`)
+  listens to `userFeeders/{uid}` and, for each feeder, to `feeders/{id}/meta` and the user's own
+  `feeders/{id}/members/{uid}`, all live. A feeder counts as accessible only when its meta is
+  readable and the membership is `active` (not expired, and for owners `meta.ownerUid` matches).
+  These are the same tests the rules apply. Feeder IDs only ever come from the database; there is
+  no `feeder1` anywhere outside the unmounted legacy file.
+- **Selection** (`resolveSelection`, a pure function): keep the current feeder while it is
+  accessible, otherwise the saved `users/{uid}/lastSelectedFeederId`, otherwise the only feeder.
+  With several feeders and no valid choice, the user picks from the list. Each choice is saved
+  (best effort; the rules only accept IDs present in `userFeeders`).
+- **Screens** (`HomeShell`): loading; error with **Retry**; **onboarding** when the user has no
+  feeder (*Create virtual feeder* works, *Register a device* stays disabled until the hardware
+  phase); a **chooser** for several feeders; otherwise the **feeder shell**.
+- **Feeder shell** (`lib/features/feeder/`): the app bar title is the switcher (name plus
+  **VIRTUAL** and **ARCHIVED** badges, tap for the feeder list and *Create virtual feeder*), with
+  an offline banner, an archived banner, and the original `PillNav` from `design.dart`.
+  `FeederScope` provides the feeder ID, role, permissions and online flag to the tabs.
+- **Tabs (until 2D):** Dashboard, Schedule, History and Settings are wired to the selected feeder
+  and gated by permission. A member without the permission sees "You don't have permission…".
+  Content placeholders say what returns in 2D and never show numbers. Settings lists the user's
+  role and permissions and the account panel.
+- **Manual feeding (decision d):** the centre button only shows "Manual feeding will be enabled in
+  Phase 5. No feeding command was sent." Nothing is written.
+- **Changes while open:**
+  - Permissions update live.
+  - When a membership becomes a revocation marker, the rules deny the meta listener, or the
+    feeder is deleted, the feeder disappears and the user sees "You no longer have access to
+    "<name>"." The app then falls back to the remaining feeder, the chooser or onboarding.
+  - A user re-added by a new invitation is listened to again.
+- **Offline:** `.info/connected` drives the banner, after a 4 s start-up grace period so the first
+  connection does not flash it.
+- **Create virtual feeder dialog:** name (1–40 characters) and time zone (IANA list, Asia/Manila
+  first). One `requestId` per dialog, so pressing *Create* again after a timeout cannot create
+  two feeders. The backend errors (for example the 3-feeder limit) are shown as they come.
+
+### Files
+
+New: `lib/services/feeder_selection.dart`, `lib/services/feeder_actions.dart`,
+`lib/features/feeder/{feeder_scope,feeder_shell,feeder_switcher,create_feeder_dialog}.dart`,
+`test/fake_feeder_source.dart`, `test/feeder_selection_test.dart`, `test/feeder_ui_test.dart`.
+Changed: `lib/features/home/home_shell.dart` (rewritten as the router), `lib/app_scope.dart`
+(new services, `AppScope.maybeOf`), `lib/features/home/account_panel.dart` (renders nothing
+without an `AppScope`, for widget tests). Removed: `lib/services/feeder_index_repository.dart`
+(replaced). After manual testing: `lib/core/backend.dart` (direct emulator database URL),
+`tests/rules/rules_config.test.mjs` (asserts it), `tests/functions/app_contract.test.mjs` and
+`package.json` (`test:functions:app`). `lib/design.dart` is unchanged.
+
+### Tests (2026-10-22, final)
+
+| Command | Result |
+|---|---|
+| `flutter analyze` | No issues |
+| `flutter test` | **53 / 53**: 26 existing + 19 `feeder_selection_test` + 8 `feeder_ui_test` |
+| `flutter build apk --debug` | Builds (55–108 s; Gradle daemons stopped afterwards to free memory) |
+| `npm run test:rules` | **120 / 120** (`rules_config` now also asserts the emulator-only database URL) |
+| `npm run test:functions:app` | **6 / 6**: new `tests/functions/app_contract.test.mjs` |
+| `npm run test:functions` (admin, feeders, races) | 49 / 49 at the 2A commit; no functions code changed in 2B |
+
+The widget tests run on `FakeFeederSource`, which behaves like RTDB `onValue`. **The real
+integration is proven separately** by `app_contract.test.mjs`, which uses the real Auth, Database
+and Functions emulators and opens exactly the listeners and writes that `FirebaseFeederDataSource`
+uses:
+- `createVirtualFeeder` returns dynamic `fd_` IDs that appear live in `userFeeders/{uid}`.
+- `lastSelectedFeederId` accepts only the user's own feeders (`feeder1` and another owner's feeder
+  are refused).
+- Another owner and the admin are refused every listener.
+- On removal, the server cancels the member's open `meta` listener, and their member record turns
+  into the `removed` marker.
+- Permission changes and archiving reach open listeners.
+- Deletion removes the feeder from the owner's index.
+
+### Manual test on the Pixel_8 emulator
+
+14 of 15 scenarios passed. Scenario 13 (network errors) passed in part. Details and screenshots:
+`docs/review/phase2/evidence/07-manual-2b.md` and `docs/review/phase2/screenshots/`.
+
+Manual testing found two bugs, both fixed:
+- **False "Offline" banner.** In emulator mode, `useDatabaseEmulator()` on Android made the plugin
+  create a new database instance and connection per call (11 seen). `.info/connected` then
+  reported an idle one. The fix is a direct emulator URL (`http://<host>:9000/?ns=demo-agrifeed`)
+  in `lib/core/backend.dart`: one instance, one connection, still unable to reach production.
+- **Raw `UNAVAILABLE` text** in the create dialog. `describeFunctionsError` now gives a readable
+  message for connection problems and keeps the backend's own messages.
+
+### Not yet verified for 2B
+
+- A full re-check of the banner fix on the device (75 s idle plus an airplane-mode toggle). It was
+  started, but Claude Code stopped it because the PC was critically low on memory. The fixed build
+  connected and worked normally and showed no banner about a minute into the session.

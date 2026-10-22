@@ -3,21 +3,156 @@ import 'package:flutter/material.dart';
 import '../../app_scope.dart';
 import '../../core/widgets/panel.dart';
 import '../../design.dart';
-import '../../services/feeder_index_repository.dart';
+import '../../services/feeder_selection.dart';
+import '../feeder/create_feeder_dialog.dart';
+import '../feeder/feeder_shell.dart';
+import '../feeder/feeder_switcher.dart';
 import 'account_panel.dart';
 
-/// Owner / member home for the Phase 1 build.
-///
-/// Feeders are listed from `userFeeders/{uid}`. The feeder screens (dashboard,
-/// schedule, history, settings) are reconnected to the selected feeder in
-/// Phase 2; until then no legacy `feeder1` listener is started.
-class HomeShell extends StatelessWidget {
-  const HomeShell({super.key});
+/// Owner / member home: loads the user's feeders from `userFeeders/{uid}`
+/// and shows, in order of what applies:
+///  * loading, or an error with retry;
+///  * the selected feeder (one feeder is selected automatically, otherwise
+///    the last one used);
+///  * onboarding when the user has no feeder;
+///  * the feeder list when there are several and none is selected.
+/// Access lost while the app is open (removed, left, feeder deleted) moves
+/// the user back here with a short message.
+class HomeShell extends StatefulWidget {
+  const HomeShell({super.key, this.selection});
+
+  /// For tests; normally created here for the signed-in user.
+  final FeederSelectionController? selection;
+
+  @override
+  State<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends State<HomeShell> {
+  FeederSelectionController? _owned;
+  late FeederSelectionController _selection;
+  bool _ready = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_ready) return;
+    _ready = true;
+    final given = widget.selection;
+    if (given != null) {
+      _selection = given;
+    } else {
+      final s = AppScope.of(context);
+      _selection = _owned = FeederSelectionController(
+        s.feederData,
+        s.auth.currentUser!.uid,
+      )..start();
+    }
+    _selection.addListener(_showNotice);
+  }
+
+  @override
+  void dispose() {
+    _selection.removeListener(_showNotice);
+    _owned?.dispose();
+    super.dispose();
+  }
+
+  void _showNotice() {
+    final notice = _selection.takeNotice();
+    if (notice == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(notice)));
+    });
+  }
+
+  Future<void> _create() async {
+    final id = await showCreateVirtualFeederDialog(
+      context,
+      AppScope.of(context).feederActions,
+    );
+    if (id != null) _selection.select(id);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final s = AppScope.of(context);
-    final uid = s.auth.currentUser!.uid;
+    return ListenableBuilder(
+      listenable: _selection,
+      builder: (context, _) {
+        final sel = _selection;
+        if (sel.stage == FeederListStage.error) {
+          return _ListPage(
+            online: sel.online,
+            child: Panel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Could not load your feeders. Check the connection and try again.',
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: sel.retry,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        final feeders = sel.feeders;
+        if (sel.stage == FeederListStage.loading ||
+            (feeders.isEmpty && sel.resolving)) {
+          return const _ListPage(
+            online: true,
+            child: Panel(child: Center(child: CircularProgressIndicator())),
+          );
+        }
+        if (sel.selected != null) {
+          return FeederShell(selection: sel, onCreate: _create);
+        }
+        if (feeders.isEmpty) {
+          return _ListPage(
+            online: sel.online,
+            child: NoFeederPanel(onCreate: _create),
+          );
+        }
+        return _ListPage(
+          online: sel.online,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Choose a feeder',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              FeederList(feeders: feeders, onSelect: sel.select),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: _create,
+                icon: const Icon(Icons.add),
+                label: const Text('Create virtual feeder'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Plain page for the states without a selected feeder.
+class _ListPage extends StatelessWidget {
+  const _ListPage({required this.child, required this.online});
+
+  final Widget child;
+  final bool online;
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         centerTitle: true,
@@ -30,27 +165,14 @@ class HomeShell extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          StreamBuilder<List<FeederLink>>(
-            stream: s.feeders.watchMyFeeders(uid),
-            builder: (context, snap) {
-              if (snap.hasError) {
-                return const Panel(
-                  child: Text(
-                    'Could not load your feeders. Check the connection and try again.',
-                  ),
-                );
-              }
-              if (!snap.hasData) {
-                return const Panel(
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              final feeders = snap.data!;
-              return feeders.isEmpty
-                  ? const NoFeederPanel()
-                  : FeederListPanel(feeders: feeders);
-            },
-          ),
+          if (!online) ...[
+            const Panel(
+              color: kBeige,
+              child: Text('Offline. Waiting for the connection to return.'),
+            ),
+            const SizedBox(height: 12),
+          ],
+          child,
           const SizedBox(height: 16),
           const AccountPanel(),
         ],
@@ -60,7 +182,10 @@ class HomeShell extends StatelessWidget {
 }
 
 class NoFeederPanel extends StatelessWidget {
-  const NoFeederPanel({super.key});
+  const NoFeederPanel({super.key, this.onCreate});
+
+  /// Null disables the button (e.g. while offline in tests).
+  final VoidCallback? onCreate;
 
   @override
   Widget build(BuildContext context) {
@@ -83,12 +208,12 @@ class NoFeederPanel extends StatelessWidget {
             'Create a virtual feeder or register a device to continue.',
           ),
           const SizedBox(height: 16),
-          const SizedBox(
+          SizedBox(
             width: double.infinity,
             height: 50,
             child: FilledButton(
-              onPressed: null,
-              child: Text('Create virtual feeder'),
+              onPressed: onCreate,
+              child: const Text('Create virtual feeder'),
             ),
           ),
           const SizedBox(height: 10),
@@ -102,47 +227,13 @@ class NoFeederPanel extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'Feeder registration is not available yet in this development build. '
-            'Virtual feeders arrive in Phase 2; physical devices in the hardware phase. '
-            'If a farm owner invites you, their feeder will appear here.',
+            'A virtual feeder is simulated and needs no hardware. Physical '
+            'devices are registered in the hardware phase. If a farm owner '
+            'invites you, their feeder appears here once you join.',
             style: TextStyle(
               color: Colors.black.withValues(alpha: 0.55),
               fontSize: 12,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class FeederListPanel extends StatelessWidget {
-  const FeederListPanel({super.key, required this.feeders});
-
-  final List<FeederLink> feeders;
-
-  @override
-  Widget build(BuildContext context) {
-    return Panel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Your feeders',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 8),
-          for (final f in feeders)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.memory, color: kGrain),
-              title: Text(f.name ?? 'Unnamed feeder'),
-              subtitle: Text(f.role == 'owner' ? 'Owner' : 'Member'),
-            ),
-          const SizedBox(height: 4),
-          const Text(
-            'Feeder dashboards connect to the selected feeder in Phase 2.',
-            style: TextStyle(color: Colors.black54, fontSize: 12),
           ),
         ],
       ),

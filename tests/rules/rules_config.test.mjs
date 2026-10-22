@@ -18,6 +18,9 @@ describe('emulator configuration', () => {
     const backend = readFileSync('lib/core/backend.dart', 'utf8');
     expect(env).toContain(`kEmulatorProjectId = '${PROJECT_ID}'`);
     expect(backend).toContain("databaseURL: 'https://$kEmulatorProjectId.firebaseio.com'");
+    // The app's database instance points at the emulator with the same namespace.
+    expect(backend).toContain("'http://$host:$kDatabasePort/?ns=$kEmulatorProjectId'");
+    expect(backend).not.toMatch(/\.useDatabaseEmulator\(/); // no call (the comment explains why)
     expect(instances).toContain(PROJECT_ID); // app + Cloud Functions namespace
     expect(instances).toContain(`${PROJECT_ID}-default-rtdb`); // SDK default naming, also protected
     for (const d of firebaseJson.database) expect(d.rules).toBe('database.rules.json');

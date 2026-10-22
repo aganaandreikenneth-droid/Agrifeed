@@ -52,6 +52,11 @@ const _emulatorOptions = FirebaseOptions(
   databaseURL: 'https://$kEmulatorProjectId.firebaseio.com',
 );
 
+/// The emulator database for [host]: same namespace as the Cloud Functions
+/// and the firebase.json rules (`demo-agrifeed`), plain HTTP to the emulator.
+String emulatorDatabaseUrl(String host) =>
+    'http://$host:$kDatabasePort/?ns=$kEmulatorProjectId';
+
 Future<BootResult> startBackend() async {
   switch (decideEnvironment(kEnvName, productionEnabled: kProductionEnabled)) {
     case EnvDecision.productionBlocked:
@@ -90,11 +95,15 @@ Future<BootResult> startBackend() async {
 
   final auth = FirebaseAuth.instanceFor(app: app);
   await auth.useAuthEmulator(host, kAuthPort);
+  // The database URL names the emulator directly (namespace via ?ns=) instead
+  // of calling useDatabaseEmulator(). On Android, useEmulator rewrites the
+  // instance's lookup key, so every later getInstance() call by the plugin
+  // created a new instance with its own connection (11 in one session), and
+  // `.info/connected` then reported an idle one as offline.
   final db = FirebaseDatabase.instanceFor(
     app: app,
-    databaseURL: _emulatorOptions.databaseURL,
+    databaseURL: emulatorDatabaseUrl(host),
   );
-  db.useDatabaseEmulator(host, kDatabasePort);
   final functions = FirebaseFunctions.instanceFor(
     app: app,
     region: kFunctionsRegion,

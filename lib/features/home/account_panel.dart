@@ -35,9 +35,9 @@ class AccountPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = AppScope.of(context);
-    final user = s.auth.currentUser;
-    if (user == null) return const SizedBox.shrink();
+    final s = AppScope.maybeOf(context); // absent in widget tests
+    final user = s?.auth.currentUser;
+    if (s == null || user == null) return const SizedBox.shrink();
     return Column(
       children: [
         StreamBuilder<String?>(

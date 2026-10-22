@@ -3,7 +3,8 @@ import 'package:flutter/widgets.dart';
 import 'core/backend.dart';
 import 'services/admin_service.dart';
 import 'services/auth_service.dart';
-import 'services/feeder_index_repository.dart';
+import 'services/feeder_actions.dart';
+import 'services/feeder_selection.dart';
 import 'services/profile_repository.dart';
 import 'services/session.dart';
 
@@ -14,7 +15,8 @@ class AppServices {
     this.auth,
     this.session,
     this.profiles,
-    this.feeders,
+    this.feederData,
+    this.feederActions,
     this.admin,
   );
 
@@ -25,7 +27,8 @@ class AppServices {
       AuthService(backend.auth),
       SessionController(backend.auth, backend.db, profiles),
       profiles,
-      FeederIndexRepository(backend.db),
+      FirebaseFeederDataSource(backend.db),
+      FeederActions(backend.functions),
       AdminService(backend.functions, backend.db),
     );
   }
@@ -34,7 +37,8 @@ class AppServices {
   final AuthService auth;
   final SessionController session;
   final ProfileRepository profiles;
-  final FeederIndexRepository feeders;
+  final FeederDataSource feederData;
+  final FeederActions feederActions;
   final AdminService admin;
 }
 
@@ -44,8 +48,10 @@ class AppScope extends InheritedWidget {
 
   final AppServices services;
 
-  static AppServices of(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<AppScope>()!.services;
+  static AppServices of(BuildContext context) => maybeOf(context)!;
+
+  static AppServices? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<AppScope>()?.services;
 
   @override
   bool updateShouldNotify(AppScope oldWidget) => services != oldWidget.services;
