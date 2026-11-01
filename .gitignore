@@ -63,3 +63,7 @@ ui-debug.log
 .env
 .env.*
 .firebase-lan.json
+.firebase-production-rules.json
+
+# Local production data backups (never commit)
+backup-*.json

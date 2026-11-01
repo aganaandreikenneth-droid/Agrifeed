@@ -3,26 +3,40 @@ import 'package:flutter/material.dart';
 import '../../app_scope.dart';
 import '../../core/widgets/panel.dart';
 import '../../design.dart';
+import '../../services/feeder_live.dart';
+import '../../services/feeder_repository.dart';
 import '../../services/feeder_selection.dart';
-import '../feeder/create_feeder_dialog.dart';
 import '../feeder/feeder_shell.dart';
-import '../feeder/feeder_switcher.dart';
 import 'account_panel.dart';
 
-/// Owner / member home: loads the user's feeders from `userFeeders/{uid}`
-/// and shows, in order of what applies:
+/// Feeder owner home. AgriFeed has one machine per account: after sign-in
+/// the feeder assigned in `userFeeders/{uid}` (written only by the backend)
+/// opens directly. Shows, in order of what applies:
 ///  * loading, or an error with retry;
-///  * the selected feeder (one feeder is selected automatically, otherwise
-///    the last one used);
-///  * onboarding when the user has no feeder;
-///  * the feeder list when there are several and none is selected.
-/// Access lost while the app is open (removed, left, feeder deleted) moves
-/// the user back here with a short message.
+///  * the feeder (Home, Feeding, Activity, Settings);
+///  * a notice when no machine is assigned to the account.
+/// Access lost while the app is open moves the user back here with a short
+/// message.
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key, this.selection});
+  const HomeShell({
+    super.key,
+    this.selection,
+    this.feeders,
+    this.live,
+    this.uid,
+  });
 
   /// For tests; normally created here for the signed-in user.
   final FeederSelectionController? selection;
+
+  /// For tests; normally taken from [AppScope].
+  final FeederRepository? feeders;
+
+  /// For tests; normally taken from [AppScope].
+  final FeederLive? live;
+
+  /// For tests; normally the signed-in user.
+  final String? uid;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -31,6 +45,9 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   FeederSelectionController? _owned;
   late FeederSelectionController _selection;
+  late FeederRepository _feeders;
+  late FeederLive _live;
+  late String _uid;
   bool _ready = false;
 
   @override
@@ -38,16 +55,19 @@ class _HomeShellState extends State<HomeShell> {
     super.didChangeDependencies();
     if (_ready) return;
     _ready = true;
+    final s = AppScope.maybeOf(context);
     final given = widget.selection;
     if (given != null) {
       _selection = given;
     } else {
-      final s = AppScope.of(context);
       _selection = _owned = FeederSelectionController(
-        s.feederData,
+        s!.feederData,
         s.auth.currentUser!.uid,
       )..start();
     }
+    _feeders = widget.feeders ?? s!.feeders;
+    _live = widget.live ?? s!.live;
+    _uid = widget.uid ?? s!.auth.currentUser!.uid;
     _selection.addListener(_showNotice);
   }
 
@@ -68,14 +88,6 @@ class _HomeShellState extends State<HomeShell> {
     });
   }
 
-  Future<void> _create() async {
-    final id = await showCreateVirtualFeederDialog(
-      context,
-      AppScope.of(context).feederActions,
-    );
-    if (id != null) _selection.select(id);
-  }
-
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -90,7 +102,7 @@ class _HomeShellState extends State<HomeShell> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Could not load your feeders. Check the connection and try again.',
+                    'Could not load your feeder. Check the connection and try again.',
                   ),
                   const SizedBox(height: 12),
                   FilledButton(
@@ -102,49 +114,28 @@ class _HomeShellState extends State<HomeShell> {
             ),
           );
         }
-        final feeders = sel.feeders;
         if (sel.stage == FeederListStage.loading ||
-            (feeders.isEmpty && sel.resolving)) {
+            (sel.selected == null && sel.resolving)) {
           return const _ListPage(
             online: true,
             child: Panel(child: Center(child: CircularProgressIndicator())),
           );
         }
         if (sel.selected != null) {
-          return FeederShell(selection: sel, onCreate: _create);
-        }
-        if (feeders.isEmpty) {
-          return _ListPage(
-            online: sel.online,
-            child: NoFeederPanel(onCreate: _create),
+          return FeederShell(
+            selection: sel,
+            feeders: _feeders,
+            live: _live,
+            uid: _uid,
           );
         }
-        return _ListPage(
-          online: sel.online,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Choose a feeder',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 8),
-              FeederList(feeders: feeders, onSelect: sel.select),
-              const SizedBox(height: 8),
-              TextButton.icon(
-                onPressed: _create,
-                icon: const Icon(Icons.add),
-                label: const Text('Create virtual feeder'),
-              ),
-            ],
-          ),
-        );
+        return _ListPage(online: sel.online, child: const NoFeederPanel());
       },
     );
   }
 }
 
-/// Plain page for the states without a selected feeder.
+/// Plain page for the states without a feeder.
 class _ListPage extends StatelessWidget {
   const _ListPage({required this.child, required this.online});
 
@@ -181,11 +172,10 @@ class _ListPage extends StatelessWidget {
   }
 }
 
+/// No machine is assigned to this account. Assignment is done by the
+/// backend only (never from the app), so there is nothing to press here.
 class NoFeederPanel extends StatelessWidget {
-  const NoFeederPanel({super.key, this.onCreate});
-
-  /// Null disables the button (e.g. while offline in tests).
-  final VoidCallback? onCreate;
+  const NoFeederPanel({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -196,7 +186,7 @@ class NoFeederPanel extends StatelessWidget {
           const HeroIcon(Icons.grain),
           const SizedBox(height: 16),
           const Text(
-            'No feeder registered',
+            'No AgriFeed machine yet',
             style: TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w800,
@@ -205,31 +195,13 @@ class NoFeederPanel extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Create a virtual feeder or register a device to continue.',
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: FilledButton(
-              onPressed: onCreate,
-              child: const Text('Create virtual feeder'),
-            ),
-          ),
-          const SizedBox(height: 10),
-          const SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: OutlinedButton(
-              onPressed: null,
-              child: Text('Register a device'),
-            ),
+            'No AgriFeed machine is assigned to this account yet.',
+            key: ValueKey('no-feeder-assigned'),
           ),
           const SizedBox(height: 10),
           Text(
-            'A virtual feeder is simulated and needs no hardware. Physical '
-            'devices are registered in the hardware phase. If a farm owner '
-            'invites you, their feeder appears here once you join.',
+            'Once your machine is assigned to you, it opens here '
+            'automatically.',
             style: TextStyle(
               color: Colors.black.withValues(alpha: 0.55),
               fontSize: 12,

@@ -11,13 +11,19 @@ import 'fake_feeder_source.dart';
 Future<(FakeFeederSource, FeederSelectionController)> pumpHome(
   WidgetTester tester, {
   String? saved,
+  FakeFeederRepository? feeders,
 }) async {
   final src = FakeFeederSource(saved: saved);
   final c = FeederSelectionController(src, 'u1')..start();
   await tester.pumpWidget(
     MaterialApp(
       theme: agrifeedTheme(),
-      home: HomeShell(selection: c),
+      home: HomeShell(
+        selection: c,
+        feeders: feeders ?? FakeFeederRepository(),
+        live: FakeFeederLive(),
+        uid: 'u1',
+      ),
     ),
   );
   await tester.pump();
@@ -31,26 +37,22 @@ Future<void> done(WidgetTester tester, FeederSelectionController c) async {
 }
 
 void main() {
-  testWidgets('loading, then onboarding when no feeder is registered', (
+  testWidgets('loading, then a plain notice when no machine is assigned', (
     tester,
   ) async {
     final (src, c) = await pumpHome(tester);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     src.index.add({});
     await tester.pump();
-    expect(find.text('No feeder registered'), findsOneWidget);
-    final create = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Create virtual feeder'),
-    );
-    expect(create.onPressed, isNotNull);
-    final register = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, 'Register a device'),
-    );
-    expect(register.onPressed, isNull);
+    expect(find.byKey(const ValueKey('no-feeder-assigned')), findsOneWidget);
+    // Assignment is backend-only: nothing to create or register here.
+    expect(find.textContaining('Create'), findsNothing);
+    expect(find.textContaining('Register'), findsNothing);
+    expect(find.byType(FilledButton), findsNothing);
     await done(tester, c);
   });
 
-  testWidgets('one feeder opens directly with its name and VIRTUAL badge', (
+  testWidgets('the assigned feeder opens Home directly, labelled SIMULATION', (
     tester,
   ) async {
     final (src, c) = await pumpHome(tester);
@@ -59,58 +61,73 @@ void main() {
     await tester.pump();
     expect(find.byType(FeederShell), findsOneWidget);
     expect(find.text('Backyard coop'), findsOneWidget);
-    expect(find.text('VIRTUAL'), findsOneWidget);
-    expect(find.text('Dashboard'), findsOneWidget);
+    expect(find.text('SIMULATION'), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-greeting')), findsOneWidget);
     await done(tester, c);
   });
 
-  testWidgets('several feeders: choose one, then switch from the app bar', (
+  testWidgets('a controller feeder (live) has no SIMULATION label', (
     tester,
   ) async {
     final (src, c) = await pumpHome(tester);
-    src.index.add({'fA': 'owner', 'fB': 'member'});
-    src.feeder('fA', name: 'Alpha');
-    src.feeder('fB', name: 'Bravo', owner: false, mode: 'live');
-    await tester.pump();
-    expect(find.text('Choose a feeder'), findsOneWidget);
-    expect(find.text('VIRTUAL'), findsOneWidget); // Alpha only
-
-    await tester.tap(find.text('Bravo'));
+    src.index.add({'fA': 'owner'});
+    src.feeder('fA', mode: 'live');
     await tester.pump();
     expect(find.byType(FeederShell), findsOneWidget);
-    expect(find.text('VIRTUAL'), findsNothing);
-
-    await tester.tap(find.byKey(const ValueKey('feeder-switcher')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('feeder-fA')));
-    await tester.pumpAndSettle();
-    expect(c.selected?.feederId, 'fA');
-    expect(find.text('Alpha'), findsOneWidget);
-    expect(find.text('VIRTUAL'), findsOneWidget);
-    expect(src.savedWrites, ['fB', 'fA']);
+    expect(find.text('SIMULATION'), findsNothing);
     await done(tester, c);
   });
 
-  testWidgets('the feed button explains Phase 5 and sends nothing', (
+  testWidgets('several feeders (old data): one opens, no chooser or switcher', (
     tester,
   ) async {
     final (src, c) = await pumpHome(tester);
+    src.index.add({'fB': 'owner', 'fA': 'owner'});
+    src.feeder('fA', name: 'Alpha');
+    src.feeder('fB', name: 'Bravo');
+    await tester.pump();
+    expect(find.byType(FeederShell), findsOneWidget);
+    expect(c.selected?.feederId, 'fA'); // first by name
+    expect(find.text('Choose a feeder'), findsNothing);
+    expect(find.byIcon(Icons.expand_more_rounded), findsNothing);
+    expect(src.savedWrites, ['fA']);
+    await done(tester, c);
+  });
+
+  testWidgets('several feeders: the last used one opens', (tester) async {
+    final (src, c) = await pumpHome(tester, saved: 'fB');
+    src.index.add({'fA': 'owner', 'fB': 'owner'});
+    src.feeder('fA', name: 'Alpha');
+    src.feeder('fB', name: 'Bravo');
+    await tester.pump();
+    expect(c.selected?.feederId, 'fB');
+    expect(find.text('Bravo'), findsOneWidget);
+    await done(tester, c);
+  });
+
+  testWidgets('the feed button opens the Feeding tab and sends nothing', (
+    tester,
+  ) async {
+    final feeders = FakeFeederRepository();
+    final (src, c) = await pumpHome(tester, feeders: feeders);
     src.index.add({'fA': 'owner'});
     src.feeder('fA');
     await tester.pump();
     await tester.tap(find.byIcon(Icons.grain));
     await tester.pump();
-    expect(find.text(kManualFeedDisabledMessage), findsOneWidget);
+    expect(find.text('Feeding'), findsOneWidget);
+    expect(find.byKey(const ValueKey('section-gate')), findsOneWidget);
     expect(src.savedWrites, ['fA']); // the only write: the selection
+    expect(feeders.writes, isEmpty);
     await done(tester, c);
   });
 
-  testWidgets('tabs follow the member permissions, live', (tester) async {
+  testWidgets('tabs follow the permissions, live', (tester) async {
     final (src, c) = await pumpHome(tester);
     src.index.add({'fM': 'member'});
     src.feeder('fM', owner: false, permissions: {'viewDashboard': true});
     await tester.pump();
-    await tester.tap(find.byIcon(Icons.history_rounded));
+    await tester.tap(find.byIcon(Icons.bar_chart_rounded).last);
     await tester.pump();
     expect(find.byKey(const ValueKey('no-permission')), findsOneWidget);
 
@@ -124,17 +141,16 @@ void main() {
     await done(tester, c);
   });
 
-  testWidgets('removed while open: back to onboarding with a message', (
+  testWidgets('access lost while open: back to the notice with a message', (
     tester,
   ) async {
     final (src, c) = await pumpHome(tester);
-    src.index.add({'fM': 'member'});
-    src.feeder('fM', name: 'Shared coop', owner: false);
+    src.index.add({'fA': 'owner'});
+    src.feeder('fA', name: 'Shared coop');
     await tester.pump();
     expect(find.byType(FeederShell), findsOneWidget);
 
-    src.member('fM').add({'role': 'member', 'status': 'removed'});
-    src.meta('fM').addError(Exception('permission-denied'));
+    src.meta('fA').addError(Exception('permission-denied'));
     await tester.pump();
     await tester.pump(); // post-frame snackbar
     expect(
@@ -143,7 +159,7 @@ void main() {
     );
     src.index.add({});
     await tester.pump();
-    expect(find.text('No feeder registered'), findsOneWidget);
+    expect(find.byKey(const ValueKey('no-feeder-assigned')), findsOneWidget);
     await done(tester, c);
   });
 
@@ -166,11 +182,11 @@ void main() {
     final (src, c) = await pumpHome(tester);
     src.index.addError(Exception('denied'));
     await tester.pump();
-    expect(find.textContaining('Could not load your feeders'), findsOneWidget);
+    expect(find.textContaining('Could not load your feeder'), findsOneWidget);
     src.index.add({}); // the cause is fixed (e.g. connection back)
     await tester.tap(find.text('Retry'));
     await tester.pump();
-    expect(find.text('No feeder registered'), findsOneWidget);
+    expect(find.byKey(const ValueKey('no-feeder-assigned')), findsOneWidget);
     await done(tester, c);
   });
 }

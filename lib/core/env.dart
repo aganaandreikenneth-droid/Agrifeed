@@ -6,10 +6,11 @@ import 'package:flutter/foundation.dart'
 //
 //   flutter run                                  -> emulator (default)
 //   flutter run --dart-define=AGRIFEED_ENV=emulator --dart-define=EMULATOR_HOST=192.168.1.20
-//   flutter run --dart-define=AGRIFEED_ENV=production   -> blocked in this build
+//   flutter run --dart-define=AGRIFEED_ENV=production   -> Firebase project agrifeed-dda82
 //
-// Production is switched off until a deployment is explicitly approved, so a
-// development build can never read or write the live database.
+// Production must be asked for by name, so a development build never reads
+// or writes the live database by accident. It uses lib/firebase_options.dart
+// (the same project and database the ESP32 talks to).
 // ---------------------------------------------------------------------------
 
 const String kEnvName = String.fromEnvironment(
@@ -18,8 +19,11 @@ const String kEnvName = String.fromEnvironment(
 );
 const String _hostOverride = String.fromEnvironment('EMULATOR_HOST');
 
-/// Flip only after production rules and functions are approved and deployed.
-const bool kProductionEnabled = false;
+/// Production Realtime Database rules are deployed (scripts/deploy-production-rules.mjs).
+const bool kProductionEnabled = true;
+
+/// The real Firebase project (lib/firebase_options.dart).
+const String kProductionProjectId = 'agrifeed-dda82';
 
 /// Emulator project. Projects starting with "demo-" can never reach real
 /// Firebase resources, even if a request escapes the emulator.
@@ -30,15 +34,16 @@ const int kAuthPort = 9099;
 const int kDatabasePort = 9000;
 const int kFunctionsPort = 5001;
 
-enum EnvDecision { emulator, productionBlocked, invalid }
+enum EnvDecision { emulator, production, productionBlocked, invalid }
 
 EnvDecision decideEnvironment(String name, {required bool productionEnabled}) {
   switch (name) {
     case 'emulator':
       return EnvDecision.emulator;
     case 'production':
-      // Even when enabled later, production wiring must be added explicitly.
-      return EnvDecision.productionBlocked;
+      return productionEnabled
+          ? EnvDecision.production
+          : EnvDecision.productionBlocked;
     default:
       return EnvDecision.invalid;
   }

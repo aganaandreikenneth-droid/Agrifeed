@@ -100,10 +100,10 @@ void main() {
       expect(resolveSelection(available: ['a', 'b'], saved: 'b'), 'b');
       expect(resolveSelection(available: ['a'], current: 'gone'), 'a');
     });
-    test('several feeders and no valid choice: the user picks', () {
+    test('several feeders and no valid choice: the first one opens', () {
       expect(
         resolveSelection(available: ['a', 'b'], current: 'x', saved: 'y'),
-        isNull,
+        'a',
       );
       expect(resolveSelection(available: []), isNull);
     });
@@ -141,23 +141,26 @@ void main() {
       expect(src.savedWrites, ['fA']);
     });
 
-    test('several feeders: the saved one is selected, else none', () async {
-      await startWith('fB');
-      src.index.add({'fA': 'owner', 'fB': 'member'});
-      src.feeder('fA');
-      src.feeder('fB', owner: false);
-      await flush();
-      expect(c.selected?.feederId, 'fB');
+    test(
+      'several feeders: the saved one is selected, else the first owned',
+      () async {
+        await startWith('fB');
+        src.index.add({'fA': 'owner', 'fB': 'member'});
+        src.feeder('fA');
+        src.feeder('fB', owner: false);
+        await flush();
+        expect(c.selected?.feederId, 'fB');
 
-      c.dispose();
-      await startWith('stale');
-      src.index.add({'fA': 'owner', 'fB': 'member'});
-      src.feeder('fA');
-      src.feeder('fB', owner: false);
-      await flush();
-      expect(c.selected, isNull);
-      expect(c.feeders.map((f) => f.feederId), ['fA', 'fB']); // owned first
-    });
+        c.dispose();
+        await startWith('stale');
+        src.index.add({'fA': 'owner', 'fB': 'member'});
+        src.feeder('fA');
+        src.feeder('fB', owner: false);
+        await flush();
+        expect(c.selected?.feederId, 'fA');
+        expect(c.feeders.map((f) => f.feederId), ['fA', 'fB']); // owned first
+      },
+    );
 
     test('switching feeders', () async {
       await startWith('fA');
@@ -168,8 +171,6 @@ void main() {
       c.select('fB');
       expect(c.selected?.name, 'B');
       expect(c.takeNotice(), isNull);
-      c.clearSelection();
-      expect(c.selected, isNull);
     });
 
     test('removal while open: access ends, a notice explains it, '

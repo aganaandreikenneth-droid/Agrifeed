@@ -61,6 +61,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(wrap(LoginPage(auth: FakeAuthService())));
+    await tester.ensureVisible(find.text('New to AgriFeed? Create account'));
     await tester.tap(find.text('New to AgriFeed? Create account'));
     await tester.pump();
     final fields = find.byType(TextField);
@@ -68,6 +69,7 @@ void main() {
     await tester.enterText(fields.at(1), 'ana@example.com');
     await tester.enterText(fields.at(2), 'short');
     await tester.enterText(fields.at(3), 'short');
+    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Create account'));
     await tester.tap(find.widgetWithText(FilledButton, 'Create account'));
     await tester.pump();
     expect(
@@ -88,18 +90,15 @@ void main() {
   });
 
   testWidgets(
-    'no-feeder state explains next steps and disables unavailable actions',
+    'no-feeder state explains that a machine must be assigned, no actions',
     (tester) async {
       await tester.pumpWidget(wrap(const Scaffold(body: NoFeederPanel())));
-      expect(find.text('No feeder registered'), findsOneWidget);
+      expect(find.text('No AgriFeed machine yet'), findsOneWidget);
       expect(
-        find.text('Create a virtual feeder or register a device to continue.'),
+        find.text('No AgriFeed machine is assigned to this account yet.'),
         findsOneWidget,
       );
-      final create = tester.widget<FilledButton>(
-        find.widgetWithText(FilledButton, 'Create virtual feeder'),
-      );
-      expect(create.onPressed, isNull);
+      expect(find.byType(ButtonStyleButton), findsNothing);
     },
   );
 

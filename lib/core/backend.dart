@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 
+import '../firebase_options.dart';
 import 'emulator_probe.dart';
 import 'env.dart';
 
@@ -66,8 +67,10 @@ Future<BootResult> startBackend() async {
       ]);
     case EnvDecision.invalid:
       return const BootBlocked('Unknown environment', [
-        'AGRIFEED_ENV must be "emulator". Nothing was connected.',
+        'AGRIFEED_ENV must be "emulator" or "production". Nothing was connected.',
       ]);
+    case EnvDecision.production:
+      return _startProduction();
     case EnvDecision.emulator:
       break;
   }
@@ -112,5 +115,34 @@ Future<BootResult> startBackend() async {
 
   return BootReady(
     Backend(auth: auth, db: db, functions: functions, isEmulator: true),
+  );
+}
+
+/// The real project from lib/firebase_options.dart: the same Realtime
+/// Database the feeder's ESP32 reports to, over HTTPS.
+Future<BootResult> _startProduction() async {
+  final options = DefaultFirebaseOptions.currentPlatform;
+  if (options.projectId != kProductionProjectId ||
+      options.databaseURL == null) {
+    return BootBlocked('Wrong Firebase configuration', [
+      'lib/firebase_options.dart must point at $kProductionProjectId with a databaseURL.',
+    ]);
+  }
+  final app = Firebase.apps.any((a) => a.name == defaultFirebaseAppName)
+      ? Firebase.app()
+      : await Firebase.initializeApp(options: options);
+  return BootReady(
+    Backend(
+      auth: FirebaseAuth.instanceFor(app: app),
+      db: FirebaseDatabase.instanceFor(
+        app: app,
+        databaseURL: options.databaseURL,
+      ),
+      functions: FirebaseFunctions.instanceFor(
+        app: app,
+        region: kFunctionsRegion,
+      ),
+      isEmulator: false,
+    ),
   );
 }

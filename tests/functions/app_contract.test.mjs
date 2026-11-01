@@ -2,7 +2,10 @@
 // against the real emulators. FirebaseFeederDataSource
 // (lib/services/feeder_selection.dart) opens exactly these listeners:
 //   userFeeders/{uid}, feeders/{id}/meta, feeders/{id}/members/{uid}
-// and writes users/{uid}/lastSelectedFeederId. The Flutter widget tests use
+// and writes users/{uid}/lastSelectedFeederId. Milestone 1 adds
+// FirebaseFeederRepository (lib/services/feeder_repository.dart): the
+// feeders/{id}/alerts listener and the owner writes to meta/name and
+// meta/timezone. The Flutter widget tests use
 // a fake of this source; this file proves the real paths, rules and
 // functions behave the way that fake assumes.
 import { onValue, ref, set } from 'firebase/database';
@@ -148,4 +151,85 @@ describe('access lost while the app is open', () => {
     expect((await db.ref(`feeders/${feederId}`).get()).exists()).toBe(false);
     [index, meta].forEach((l) => l.unsubscribe());
   });
+});
+
+describe('Milestone 1: Settings writes and the alerts bell', () => {
+  test('single feeder: a new account has none, and cannot assign itself one (not even another owner’s)', async () => {
+    const { feederId } = await ownerWithFeeder();
+    await createUser('newcomer');
+    const u = await signIn('newcomer');
+    const index = listen(u.db, 'userFeeders/newcomer');
+    await index.until((v) => v.length > 0);
+    expect(index.last()).toBeNull(); // the app shows "No AgriFeed machine is assigned"
+
+    const now = Date.now();
+    expect(await rulesCode(set(ref(u.db, `userFeeders/newcomer/${feederId}`), { role: 'owner', addedAt: now }))).toBe('denied');
+    expect(await rulesCode(set(ref(u.db, `feeders/${feederId}/members/newcomer`), { role: 'owner', status: 'active', addedAt: now }))).toBe('denied');
+    expect(await rulesCode(set(ref(u.db, `deviceRegistry/${feederId}/ownerUid`), 'newcomer'))).toBe('denied');
+    expect(await rulesCode(set(ref(u.db, 'users/newcomer/lastSelectedFeederId'), feederId))).toBe('denied');
+    expect((await db.ref('userFeeders/newcomer').get()).exists()).toBe(false);
+    index.unsubscribe();
+  });
+
+  test('the owner renames the feeder and changes its time zone; open listeners see it', async () => {
+    const { owner, feederId } = await ownerWithFeeder();
+    const meta = listen(owner.db, `feeders/${feederId}/meta`);
+    await meta.until((v) => v.length > 0);
+
+    expect(await rulesCode(set(ref(owner.db, `feeders/${feederId}/meta/name`), 'North coop'))).toBe('ok');
+    expect(await rulesCode(set(ref(owner.db, `feeders/${feederId}/meta/timezone`), 'UTC'))).toBe('ok');
+    await meta.until((v) => v.at(-1)?.name === 'North coop' && v.at(-1)?.timezone === 'UTC');
+
+    // Invalid values are refused by the rules, not only by the app.
+    expect(await rulesCode(set(ref(owner.db, `feeders/${feederId}/meta/name`), ''))).toBe('denied');
+    expect(await rulesCode(set(ref(owner.db, `feeders/${feederId}/meta/name`), 'x'.repeat(41)))).toBe('denied');
+    expect(await rulesCode(set(ref(owner.db, `feeders/${feederId}/meta/timezone`), 'Not a zone!'))).toBe('denied');
+    // Backend-only meta fields stay closed.
+    expect(await rulesCode(set(ref(owner.db, `feeders/${feederId}/meta/ownerUid`), 'owner1'))).toBe('denied');
+    expect(await rulesCode(set(ref(owner.db, `feeders/${feederId}/meta/mode`), 'live'))).toBe('denied');
+    meta.unsubscribe();
+  });
+
+  test('another owner cannot change, archive or delete the feeder, nor read its alerts', async () => {
+    const { feederId } = await ownerWithFeeder();
+    await createUser('owner2');
+    const o2 = await signIn('owner2');
+    expect(await rulesCode(set(ref(o2.db, `feeders/${feederId}/meta/name`), 'Mine now'))).toBe('denied');
+    expect(await rulesCode(set(ref(o2.db, `feeders/${feederId}/meta/timezone`), 'UTC'))).toBe('denied');
+    for (const [fn, data] of [
+      ['archiveFeeder', { feederId }],
+      ['restoreFeeder', { feederId }],
+      ['deleteFeederPermanently', { feederId, confirmName: 'Coop A' }],
+    ]) {
+      await expect(o2.call(fn, data), fn).rejects.toMatchObject({ code: 'functions/permission-denied' });
+    }
+    const alerts = listen(o2.db, `feeders/${feederId}/alerts`);
+    await alerts.until((_, denied) => denied !== null);
+    expect(alerts.values).toEqual([]);
+    expect((await db.ref(`feeders/${feederId}/meta/name`).get()).val()).toBe('Coop A');
+  });
+
+  test('archived: read-only for the owner until restored', async () => {
+    const { owner, feederId } = await ownerWithFeeder();
+    await owner.call('archiveFeeder', { feederId });
+    expect(await rulesCode(set(ref(owner.db, `feeders/${feederId}/meta/name`), 'Renamed'))).toBe('denied');
+    expect(await rulesCode(set(ref(owner.db, `feeders/${feederId}/meta/timezone`), 'UTC'))).toBe('denied');
+    await owner.call('restoreFeeder', { feederId });
+    expect(await rulesCode(set(ref(owner.db, `feeders/${feederId}/meta/name`), 'Renamed'))).toBe('ok');
+  });
+
+  test('the owner’s alerts listener: empty for a new feeder, then live device alerts', async () => {
+    const { owner, feederId } = await ownerWithFeeder();
+    const alerts = listen(owner.db, `feeders/${feederId}/alerts`);
+    await alerts.until((v) => v.length > 0);
+    expect(alerts.last()).toBeNull(); // the bell's "No alerts" state
+    // Only a device may write alerts; the app cannot invent one.
+    const fake = { type: 'low_feed', severity: 'warning', state: 'active', firstAt: Date.now(), lastAt: Date.now(), source: 'simulator' };
+    expect(await rulesCode(set(ref(owner.db, `feeders/${feederId}/alerts/a1`), fake))).toBe('denied');
+    // Written here with the Admin SDK, standing in for the simulator (Milestone 2).
+    await db.ref(`feeders/${feederId}/alerts/low_feed`).set(fake);
+    await alerts.until((v) => v.at(-1)?.low_feed?.state === 'active');
+    alerts.unsubscribe();
+  });
+
 });

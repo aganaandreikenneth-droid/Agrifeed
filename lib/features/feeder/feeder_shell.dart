@@ -2,50 +2,55 @@ import 'package:flutter/material.dart';
 
 import '../../core/widgets/panel.dart';
 import '../../design.dart';
+import '../../services/feeder_live.dart';
+import '../../services/feeder_repository.dart';
 import '../../services/feeder_selection.dart';
-import '../home/account_panel.dart';
+import 'alerts_sheet.dart';
 import 'feeder_scope.dart';
-import 'feeder_switcher.dart';
+import 'feeder_badge.dart';
+import 'tabs/activity_tab.dart';
+import 'tabs/feeding_tab.dart';
+import 'tabs/home_tab.dart';
+import 'tabs/settings_tab.dart';
 
-/// Shown when the centre feed button is pressed (owner decision (d)).
-const kManualFeedDisabledMessage =
-    'Manual feeding will be enabled in Phase 5. No feeding command was sent.';
+/// Tab indexes, in the order of the PillNav icons in design.dart.
+class FeederTab {
+  static const home = 0;
+  static const feeding = 1;
+  static const activity = 2;
+  static const settings = 3;
+}
 
-/// The selected feeder: app bar switcher, status banners, the four feeder
-/// tabs and the original PillNav from design.dart.
-///
-/// Phase 2B: the tabs are wired to the selected feeder and its permissions;
-/// their content (the original Dashboard, Schedule, History and Settings
-/// screens) is reconnected in 2D. Until then they show what is coming,
-/// never placeholder numbers.
+/// The account's feeder: app bar title and alerts bell, status banners,
+/// the four tabs (Home, Feeding, Activity, Settings) and the original
+/// PillNav from design.dart. The centre button opens the Feeding tab; it
+/// sends nothing.
 class FeederShell extends StatefulWidget {
   const FeederShell({
     super.key,
     required this.selection,
-    required this.onCreate,
+    required this.feeders,
+    required this.live,
+    required this.uid,
   });
 
   final FeederSelectionController selection;
-  final VoidCallback onCreate;
+  final FeederRepository feeders;
+  final FeederLive live;
+  final String uid;
 
   @override
   State<FeederShell> createState() => _FeederShellState();
 }
 
 class _FeederShellState extends State<FeederShell> {
-  int _tab = 0;
+  int _tab = FeederTab.home;
+  FeederControls? _controls;
 
-  static const _titles = [
-    'Dashboard',
-    'Feeding schedule',
-    'History',
-    'Settings',
-  ];
-
-  void _manualFeed() {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(const SnackBar(content: Text(kManualFeedDisabledMessage)));
+  FeederControls _controlsFor(String feederId) {
+    final c = _controls;
+    if (c != null && c.feederId == feederId) return c;
+    return _controls = FeederControls(widget.live, feederId, widget.uid);
   }
 
   @override
@@ -55,16 +60,21 @@ class _FeederShellState extends State<FeederShell> {
     return FeederScope(
       feeder: feeder,
       online: selection.online,
+      controls: _controlsFor(feeder.feederId),
       child: Scaffold(
         appBar: AppBar(
           centerTitle: true,
           leading: const IconBox(icon: Icons.egg_alt_outlined),
-          title: FeederSwitcherTitle(
-            selected: feeder,
-            feeders: selection.feeders,
-            onSelect: selection.select,
-            onCreate: widget.onCreate,
-          ),
+          title: FeederTitle(feeder),
+          actions: [
+            AlertsBell(
+              // A new listener per feeder.
+              key: ValueKey('alerts-${feeder.feederId}'),
+              feederId: feeder.feederId,
+              feederName: feeder.name,
+              feeders: widget.feeders,
+            ),
+          ],
         ),
         body: Column(
           children: [
@@ -79,8 +89,8 @@ class _FeederShellState extends State<FeederShell> {
                 text: 'This feeder is archived and read-only. Feeding and schedules are disabled.',
               ),
             Expanded(
-              // Keyed by feeder: switching feeders rebuilds the page from
-              // scratch, so no listener of the previous feeder survives.
+              // Keyed by feeder: if the account's feeder ever changes, the
+              // page is rebuilt so no listener of the old one survives.
               child: KeyedSubtree(
                 key: ValueKey('${feeder.feederId}-$_tab'),
                 child: _page(_tab),
@@ -91,33 +101,19 @@ class _FeederShellState extends State<FeederShell> {
         bottomNavigationBar: PillNav(
           index: _tab,
           onTap: (i) => setState(() => _tab = i),
-          onCenter: _manualFeed,
+          onCenter: () => setState(() => _tab = FeederTab.feeding),
         ),
       ),
     );
   }
 
   Widget _page(int i) => switch (i) {
-    0 => _TabPage(
-      title: _titles[0],
-      allowedIf: const ['viewDashboard'],
-      body:
-          'The live dashboard (hopper level, connection status, recent '
-          'feedings) is reconnected to this feeder in milestone 2D.',
+    FeederTab.home => HomeTab(
+      onOpenFeeding: () => setState(() => _tab = FeederTab.feeding),
     ),
-    1 => _TabPage(
-      title: _titles[1],
-      allowedIf: const ['viewDashboard', 'manageSchedules'],
-      body:
-          'Daily feeding schedules (add, edit, delete, enable or disable) '
-          'return for this feeder in milestone 2D.',
-    ),
-    2 => _TabPage(
-      title: _titles[2],
-      allowedIf: const ['viewHistory', 'viewAnalytics'],
-      body: 'Feeding history for this feeder returns in milestone 2D.',
-    ),
-    _ => const _SettingsPage(),
+    FeederTab.feeding => const FeedingTab(),
+    FeederTab.activity => const ActivityTab(),
+    _ => SettingsTab(feeders: widget.feeders),
   };
 }
 
@@ -141,138 +137,6 @@ class _Banner extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// A feeder tab gated by permission: shown when the user holds at least one
-/// of [allowedIf] (owners hold all), otherwise an explanation.
-class _TabPage extends StatelessWidget {
-  const _TabPage({
-    required this.title,
-    required this.allowedIf,
-    required this.body,
-  });
-
-  final String title;
-  final List<String> allowedIf;
-  final String body;
-
-  @override
-  Widget build(BuildContext context) {
-    final feeder = FeederScope.of(context).feeder;
-    final allowed = allowedIf.any(feeder.can);
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Panel(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (allowed)
-                Text(body)
-              else
-                Text(
-                  "You don't have permission to view this for ${feeder.name}. "
-                  'Ask the feeder owner if you need access.',
-                  key: const ValueKey('no-permission'),
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-const _permissionLabels = {
-  'viewDashboard': 'View dashboard',
-  'viewHistory': 'View history',
-  'viewAnalytics': 'View analytics',
-  'manualFeed': 'Manual feeding',
-  'manageSchedules': 'Manage schedules',
-  'downloadReports': 'Download reports',
-  'receiveAlerts': 'Receive alerts',
-};
-
-class _SettingsPage extends StatelessWidget {
-  const _SettingsPage();
-
-  @override
-  Widget build(BuildContext context) {
-    final f = FeederScope.of(context).feeder;
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Panel(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Flexible(
-                    child: Text(
-                      f.name,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  for (final b in feederBadges(f)) ...[
-                    const SizedBox(width: 6),
-                    b,
-                  ],
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${f.isOwner ? 'Owner' : 'Authorized member'} · '
-                '${f.isVirtual ? 'Virtual (simulated) feeder' : 'Physical feeder'}',
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Your access',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 4),
-              for (final p in kFeederPermissions)
-                Row(
-                  children: [
-                    Icon(
-                      f.can(p)
-                          ? Icons.check_circle
-                          : Icons.remove_circle_outline,
-                      size: 18,
-                      color: f.can(p) ? kGrain : Colors.black26,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(_permissionLabels[p] ?? p),
-                  ],
-                ),
-              const SizedBox(height: 12),
-              Text(
-                'Feeder settings and member management arrive in milestones '
-                '2C and 2D.',
-                style: TextStyle(
-                  color: Colors.black.withValues(alpha: 0.55),
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        const AccountPanel(),
-      ],
     );
   }
 }

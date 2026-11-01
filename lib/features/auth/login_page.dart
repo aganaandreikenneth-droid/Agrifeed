@@ -4,11 +4,15 @@ import 'package:flutter/material.dart';
 import '../../core/widgets/panel.dart';
 import '../../core/widgets/text_prompt.dart';
 import '../../services/auth_service.dart';
+import 'get_started_page.dart' show kAgriFeedLogo;
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key, required this.auth});
+  const LoginPage({super.key, required this.auth, this.onBack});
 
   final AuthService auth;
+
+  /// Back to the Get Started screen; no back button when null.
+  final VoidCallback? onBack;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -154,7 +158,22 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return NarrowPage(
       children: [
-        const HeroIcon(Icons.egg_alt),
+        if (widget.onBack != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: IconButton.filledTonal(
+              key: const ValueKey('login-back'),
+              onPressed: widget.onBack,
+              style: IconButton.styleFrom(backgroundColor: Colors.white),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+          ),
+        Image.asset(
+          kAgriFeedLogo,
+          key: const ValueKey('login-logo'),
+          height: 96,
+          errorBuilder: (_, _, _) => const HeroIcon(Icons.egg_alt),
+        ),
         const SizedBox(height: 20),
         Text(
           _creating ? 'Create account' : 'Welcome back',

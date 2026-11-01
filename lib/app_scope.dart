@@ -4,6 +4,8 @@ import 'core/backend.dart';
 import 'services/admin_service.dart';
 import 'services/auth_service.dart';
 import 'services/feeder_actions.dart';
+import 'services/feeder_live.dart';
+import 'services/feeder_repository.dart';
 import 'services/feeder_selection.dart';
 import 'services/profile_repository.dart';
 import 'services/session.dart';
@@ -17,6 +19,8 @@ class AppServices {
     this.profiles,
     this.feederData,
     this.feederActions,
+    this.feeders,
+    this.live,
     this.admin,
   );
 
@@ -29,6 +33,8 @@ class AppServices {
       profiles,
       FirebaseFeederDataSource(backend.db),
       FeederActions(backend.functions),
+      FirebaseFeederRepository(backend.db),
+      FirebaseFeederLive(backend.db),
       AdminService(backend.functions, backend.db),
     );
   }
@@ -39,6 +45,8 @@ class AppServices {
   final ProfileRepository profiles;
   final FeederDataSource feederData;
   final FeederActions feederActions;
+  final FeederRepository feeders;
+  final FeederLive live;
   final AdminService admin;
 }
 

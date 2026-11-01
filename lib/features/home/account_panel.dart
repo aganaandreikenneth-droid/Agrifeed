@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app_scope.dart';
 import '../../core/widgets/panel.dart';
 import '../../core/widgets/text_prompt.dart';
+import '../../design.dart';
 
 /// Profile summary with name editing and sign-out (shared by user and admin).
 class AccountPanel extends StatelessWidget {
@@ -44,25 +45,47 @@ class AccountPanel extends StatelessWidget {
           stream: s.profiles.watchDisplayName(user.uid),
           builder: (context, snap) {
             final name = snap.data ?? user.displayName ?? '';
+            final shown = name.isEmpty ? 'AgriFeed user' : name;
             return Panel(
               child: Row(
                 children: [
-                  const CircleAvatar(
-                    backgroundColor: kField,
-                    child: Icon(Icons.person, color: Colors.white),
+                  Container(
+                    width: 54,
+                    height: 54,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: kAmber,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Text(
+                      shown.characters.first.toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: kInk,
+                      ),
+                    ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          name.isEmpty ? 'AgriFeed user' : name,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
+                          shown,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                            color: kInk,
+                          ),
                         ),
+                        const SizedBox(height: 2),
                         Text(
                           user.email ?? '',
-                          style: const TextStyle(color: Colors.black54),
+                          style: const TextStyle(
+                            color: Colors.black54,
+                            fontSize: 13,
+                          ),
                         ),
                       ],
                     ),
@@ -80,8 +103,16 @@ class AccountPanel extends StatelessWidget {
         const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
+          height: 50,
           child: OutlinedButton.icon(
             onPressed: s.auth.signOut,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: kRose,
+              side: const BorderSide(color: kRoseSoft, width: 1.5),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(25),
+              ),
+            ),
             icon: const Icon(Icons.logout),
             label: const Text('Sign out'),
           ),

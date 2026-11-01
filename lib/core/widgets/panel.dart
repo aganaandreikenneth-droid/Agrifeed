@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../design.dart';
 
-const Color kField = kOrange; // accent (peach)
-const Color kGrain = Color(0xFFE9794B); // deeper peach for text
+const Color kField = kAmber; // accent
+const Color kGrain = Color(0xFFD9931A); // deeper amber for icons and text
 const Color kSoil = kInk; // charcoal
 
 class Panel extends StatelessWidget {
@@ -19,14 +19,23 @@ class Panel extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: color ?? Colors.white,
-        borderRadius: BorderRadius.circular(26),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: color == null
+            ? const [
+                BoxShadow(
+                  color: Color(0x0F000000),
+                  blurRadius: 14,
+                  offset: Offset(0, 4),
+                ),
+              ]
+            : null,
       ),
       child: child,
     );
   }
 }
 
-/// Peach rounded-square icon used at the top of the auth screens.
+/// Amber rounded-square icon used at the top of the auth screens.
 class HeroIcon extends StatelessWidget {
   const HeroIcon(this.icon, {super.key});
 

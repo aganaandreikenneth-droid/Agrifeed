@@ -26,8 +26,16 @@ const ME = `${FEEDER}.child('members').child(auth.uid)`;
 
 // --- identities -------------------------------------------------------------
 
-/** A person (not a device) with a verified email. Suspension not checked. */
-const isHuman = and('auth != null', 'auth.token.device != true', 'auth.token.email_verified == true');
+/**
+ * A person (not a device) with a verified email. Suspension not checked.
+ * deviceAccounts (backend-only) lists the email/password accounts of ESP32s.
+ */
+const isHuman = and(
+  'auth != null',
+  'auth.token.device != true',
+  'auth.token.email_verified == true',
+  "!root.child('deviceAccounts').child(auth.uid).exists()",
+);
 
 /** A verified person whose account is not suspended. */
 export const isUser = and(isHuman, "root.child('accountStatus').child(auth.uid).child('suspended').val() != true");
@@ -62,12 +70,25 @@ const hasPerm = (perm) =>
  */
 const isDevice = and(
   'auth != null',
-  'auth.token.device == true',
-  'auth.token.feederId == $feederId',
   `auth.uid == ${REG}.child('deviceUid').val()`,
   `${REG}.child('status').val() == 'active'`,
-  `auth.token.mode == ${REG}.child('mode').val()`,
-  `auth.token.credVersion == ${REG}.child('credentialVersion').val()`,
+  or(
+    // Custom token with device claims (simulator; backend-issued tokens later).
+    and(
+      'auth.token.device == true',
+      'auth.token.feederId == $feederId',
+      `auth.token.mode == ${REG}.child('mode').val()`,
+      `auth.token.credVersion == ${REG}.child('credentialVersion').val()`,
+    ),
+    // Dedicated email/password account for the ESP32 (no Admin SDK needed).
+    // The backend binds its UID in the registry and marks it explicitly;
+    // rotating the password or disabling the account revokes it.
+    and(
+      'auth.token.device != true',
+      "auth.token.firebase.sign_in_provider == 'password'",
+      `${REG}.child('authMethod').val() == 'password'`,
+    ),
+  ),
 );
 
 const isSimFeeder = `${REG}.child('mode').val() == 'simulated'`;
@@ -135,6 +156,7 @@ export const rules = {
     platformAudit: { '.read': isAdmin, '.indexOn': ['ts'] },
     deviceRegistry: { '.read': isAdmin },
     platformConfig: { '.read': isAdmin },
+    deviceAccounts: { '.read': isAdmin },
     // No client access at all (Cloud Functions only): deviceClaims, invitations,
     // inviteCodes, userQuotas, rateLimits.
 
@@ -228,6 +250,14 @@ export const rules = {
           condition: { '.validate': oneOf('ok', 'jam', 'low_feed', 'error', 'unknown') },
           rssi: { '.validate': num(-150, 0) },
           firmware: { '.validate': str(1, 32) },
+          // The controller's DS3231 RTC reading, in the feeder's local time
+          // (meta/timezone), e.g. 2026-11-01T14:05:09. Optional (no RTC = absent).
+          rtcTime: {
+            '.validate': and(
+              'newData.isString()',
+              'newData.val().matches(/^20[0-9][0-9]-[01][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]$/)',
+            ),
+          },
           source: { '.validate': 'newData.isString()' },
           $other: deny,
         },
@@ -386,18 +416,79 @@ export const rules = {
               ),
             },
             // Outcome fields: only the feeder's own device may write them.
-            actualG: { '.validate': and('auth.token.device == true', num(0, 2000)) },
-            acceptedAt: { '.validate': and('auth.token.device == true', createdNowOrUnchanged) },
-            completedAt: { '.validate': and('auth.token.device == true', createdNowOrUnchanged) },
-            reason: { '.validate': and('auth.token.device == true', str(1, 120)) },
+            actualG: { '.validate': and(isDevice, num(0, 2000)) },
+            acceptedAt: { '.validate': and(isDevice, createdNowOrUnchanged) },
+            completedAt: { '.validate': and(isDevice, createdNowOrUnchanged) },
+            reason: { '.validate': and(isDevice, str(1, 120)) },
             executedBy: {
               '.validate': and(
-                'auth.token.device == true',
+                isDevice,
                 or(and(isSimFeeder, "newData.val() == 'simulator'"), and(not(isSimFeeder), "newData.val() == 'device'")),
               ),
             },
             $other: deny,
           },
+        },
+
+        // Direct gate control. The app asks (request); only the feeder reports
+        // the position (state), which is controller-reported, never verified.
+        // The controller closes the gate on its own after durationS and
+        // ignores requests older than 10 s; the app never resends.
+        gate: {
+          '.read': or(hasPerm('viewDashboard'), isDevice),
+          request: {
+            '.write': and(hasPerm('manualFeed'), notArchived, 'newData.exists()'),
+            '.validate': "newData.hasChildren(['id', 'action', 'durationS', 'requestedAt', 'requestedBy'])",
+            id: { '.validate': str(8, 64) },
+            action: { '.validate': oneOf('open', 'close') },
+            durationS: { '.validate': num(1, 15) },
+            requestedAt: { '.validate': isNow },
+            requestedBy: { '.validate': 'newData.val() == auth.uid' },
+            $other: deny,
+          },
+          state: {
+            '.write': and(isDevice, 'newData.exists()'),
+            '.validate': and("newData.hasChildren(['position', 'reportedAt', 'source'])", sourceMatchesMode),
+            position: { '.validate': oneOf('open', 'closed') },
+            reportedAt: { '.validate': isNow },
+            closesAt: { '.validate': 'newData.isNumber()' },
+            lastRequestId: { '.validate': str(8, 64) },
+            lastResult: { '.validate': oneOf('done', 'rejected') },
+            reason: { '.validate': str(1, 120) },
+            source: { '.validate': 'newData.isString()' },
+            $other: deny,
+          },
+          $other: deny,
+        },
+
+        // Load cell calibration from the app: the owner asks, the controller
+        // does it (tare = set zero with the empty hopper; calibrate = known
+        // weight in grams) and reports the result. config/calibrationStatus
+        // stays controller-written.
+        calibration: {
+          '.read': or(isOwner, isDevice),
+          request: {
+            '.write': and(isOwner, notArchived, 'newData.exists()'),
+            '.validate': "newData.hasChildren(['id', 'action', 'requestedAt', 'requestedBy'])",
+            id: { '.validate': str(8, 64) },
+            action: { '.validate': oneOf('tare', 'calibrate') },
+            knownG: { '.validate': num(1, 5000) },
+            requestedAt: { '.validate': isNow },
+            requestedBy: { '.validate': 'newData.val() == auth.uid' },
+            $other: deny,
+          },
+          state: {
+            '.write': and(isDevice, 'newData.exists()'),
+            '.validate': and("newData.hasChildren(['lastRequestId', 'result', 'reportedAt', 'source'])", sourceMatchesMode),
+            lastRequestId: { '.validate': str(8, 64) },
+            action: { '.validate': oneOf('tare', 'calibrate') },
+            result: { '.validate': oneOf('done', 'rejected') },
+            reason: { '.validate': str(1, 120) },
+            reportedAt: { '.validate': isNow },
+            source: { '.validate': 'newData.isString()' },
+            $other: deny,
+          },
+          $other: deny,
         },
 
         // Test controls for virtual feeders only. Real feeders reject them.

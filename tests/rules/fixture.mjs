@@ -122,6 +122,8 @@ export const as = {
   staleAdmin: () => human('exadmin', { admin: true }), // claim but no registry entry
   device: (uid, feederId, mode, credVersion) =>
     env.authenticatedContext(uid, { device: true, feederId, mode, credVersion }).database(DB_URL),
+  /** Any signed-in identity with exactly these token fields (no defaults). */
+  raw: (uid, token) => env.authenticatedContext(uid, token).database(DB_URL),
 };
 
 export const devF = () => as.device('dev_F', F, 'live', 2);

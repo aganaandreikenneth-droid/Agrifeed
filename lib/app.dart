@@ -9,9 +9,31 @@ import 'features/auth/boot_blocked_page.dart';
 
 ThemeData agrifeedTheme() => ThemeData(
   useMaterial3: true,
-  colorScheme: ColorScheme.fromSeed(seedColor: kField)
-      .copyWith(primary: kSoil, onPrimary: Colors.white, secondary: kGrain),
+  colorScheme: ColorScheme.fromSeed(seedColor: kField).copyWith(
+    primary: kAmber,
+    onPrimary: kInk,
+    secondary: kGrain,
+    surface: Colors.white,
+  ),
   scaffoldBackgroundColor: kBg,
+  filledButtonTheme: FilledButtonThemeData(
+    style: FilledButton.styleFrom(
+      backgroundColor: kAmber,
+      foregroundColor: kInk,
+      textStyle: const TextStyle(fontWeight: FontWeight.w700),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    ),
+  ),
+  outlinedButtonTheme: OutlinedButtonThemeData(
+    style: OutlinedButton.styleFrom(
+      foregroundColor: kInk,
+      side: const BorderSide(color: Color(0x33000000)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    ),
+  ),
+  textButtonTheme: TextButtonThemeData(
+    style: TextButton.styleFrom(foregroundColor: kInk),
+  ),
   appBarTheme: const AppBarTheme(
     backgroundColor: kBg,
     foregroundColor: kSoil,

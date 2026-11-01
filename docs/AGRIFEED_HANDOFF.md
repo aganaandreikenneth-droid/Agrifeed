@@ -79,10 +79,10 @@ lib/
   app.dart                     MaterialApp + theme (cream/peach/charcoal), EMULATOR banner
   app_scope.dart               AppServices (created once) + AppScope InheritedWidget
   design.dart                  ORIGINAL theme widgets (SegmentGauge, IconBox, PillNav). UNCHANGED, do not reformat
-  firebase_options.dart        FlutterFire production config (not used by the Phase 1 build)
+  firebase_options.dart        FlutterFire production config (used only with AGRIFEED_ENV=production)
   core/
-    env.dart                   AGRIFEED_ENV (default "emulator"), kProductionEnabled=false, emulator host/ports
-    backend.dart               named Firebase app "agrifeed-emulator" (project demo-agrifeed); probe; no fallback
+    env.dart                   AGRIFEED_ENV (default "emulator"), kProductionEnabled=true, emulator host/ports
+    backend.dart               emulator: named app "agrifeed-emulator" (demo-agrifeed), probe, no fallback; production: default app from firebase_options.dart
     emulator_probe*.dart       TCP reachability check (io) / unsupported on web (stub)
     format.dart                toMap, two, fmtTs, ago, weightLabel
     widgets/panel.dart         Panel, HeroIcon, NarrowPage, colour constants
@@ -133,8 +133,8 @@ Firebase CLI 15.32, Android emulator "Pixel_8".
 ## 6. Firebase security architecture and environment
 
 ### Environment safety
-- The app defaults to **emulator**. `AGRIFEED_ENV=production` is **blocked** (`kProductionEnabled=false`);
-  enabling production needs explicit wiring at the approved deployment step.
+- The app defaults to **emulator**. Production (agrifeed-dda82) is used only when asked for by name,
+  `--dart-define=AGRIFEED_ENV=production`; it needs the production rules deployed and the feeder provisioned.
 - All services use a **named app** with project `demo-agrifeed` (a `demo-` project cannot reach real
   resources), never the `.instance` singletons. If the Auth, Database or Functions emulator is
   unreachable, the app shows a blocking page and **does not fall back to production**.

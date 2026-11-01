@@ -1,0 +1,13 @@
+{
+  "database": [
+    { "instance": "demo-agrifeed", "rules": "database.rules.json" }
+  ],
+  "emulators": {
+    "singleProjectMode": true,
+    "auth": { "port": 9199, "host": "127.0.0.1" },
+    "database": { "port": 9400, "host": "127.0.0.1" },
+    "ui": { "enabled": false },
+    "hub": { "host": "127.0.0.1", "port": 4499 },
+    "logging": { "host": "127.0.0.1", "port": 4599 }
+  }
+}

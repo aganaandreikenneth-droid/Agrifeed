@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import '../../services/feeder_live.dart';
 import '../../services/feeder_selection.dart';
 
 /// The selected feeder for everything below it: its ID, the user's role and
@@ -12,16 +13,22 @@ class FeederScope extends InheritedWidget {
     super.key,
     required this.feeder,
     required this.online,
+    required this.controls,
     required super.child,
   });
 
   final FeederSummary feeder;
   final bool online;
 
+  /// Live data and requests for this feeder, as the signed-in user.
+  final FeederControls controls;
+
   static FeederScope of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<FeederScope>()!;
 
   @override
   bool updateShouldNotify(FeederScope oldWidget) =>
-      feeder != oldWidget.feeder || online != oldWidget.online;
+      feeder != oldWidget.feeder ||
+      online != oldWidget.online ||
+      controls != oldWidget.controls;
 }

@@ -1,0 +1,641 @@
+--- /c/Users/Lenovo/Downloads/AgriFeed_code/AgriFeed_code.ino	2026-10-31 21:44:58.907026600 +0800
++++ AgriFeed_code_wifi_fix/AgriFeed_code_wifi_fix.ino	2026-11-01 23:25:58.349052200 +0800
+@@ -83,7 +83,7 @@
+ // device account and the database Security Rules.
+ const char* FIREBASE_API_KEY = "AIzaSyDKLwAToh1rYL9RHn56KBTlBXzX-6TofwE";
+ const char* DATABASE_HOST    = "agrifeed-dda82-default-rtdb.firebaseio.com";
+-const char* FIRMWARE         = "esp32-2.0";
++const char* FIRMWARE         = "esp32-2.1-wifidiag";   // shows in status/firmware: proves this build runs
+ // Used until the feeder's time zone (meta/timezone) has been read once.
+ const char* TZ_FALLBACK      = "PHT-8";   // Asia/Manila
+ 
+@@ -92,6 +92,9 @@
+ const char* PORTAL_PASSWORD = "agrifeed123";   // at least 8 characters; change it
+ const unsigned long WIFI_GIVE_UP_MS  = 60000;  // no Wi-Fi this long: open setup too
+ const unsigned long PORTAL_TIMEOUT_S = 300;    // setup closes after 5 min unused
++const unsigned long WIFI_RETRY_MS    = 20000;  // retry the saved network this often, portal open or not
++const unsigned long WIFI_RSSI_LOG_MS = 30000;  // log signal strength this often while connected
++const bool WIFI_DISABLE_SLEEP = true;          // modem sleep off: fewer drops with phone hotspots
+ const bool ENABLE_SETUP_BUTTON = true;
+ #define SETUP_BUTTON_PIN 0                     // on-board BOOT button
+ 
+@@ -164,9 +167,17 @@
+ const int  ANGLE_OPEN        = 90;
+ const unsigned long BEEP_MS        = 100;
+ const unsigned long LCD_REFRESH_MS = 500;
++// How often weight + status go to Firebase (the app updates as soon as they arrive).
++const unsigned long REPORT_IDLE_MS  = 1000;  // weight to Firebase, gate closed (was 5000)
++const unsigned long REPORT_BUSY_MS  = 1000;  // weight to Firebase, gate open or feeding
++const unsigned long STATUS_EVERY_MS = 5000;  // online heartbeat (app says offline after 30 s)
+ 
+ // Gate and feeding limits (same as the app and the simulator).
+-const unsigned long GATE_MAX_MS     = 15000;  // longest gate OPEN request
++const unsigned long GATE_MAX_MS     = 15000;  // longest timed gate OPEN (app OPEN now holds instead)
++// App OPEN keeps the gate open until CLOSE. Safety net: if the feeder cannot
++// reach Firebase for this long while held open, the app could not close it,
++// so the controller closes it itself.
++const unsigned long GATE_OFFLINE_CLOSE_MS = 30000;
+ const unsigned long GATE_MAX_AGE_MS = 10000;  // older OPEN/CLOSE requests are rejected
+ const unsigned long COMMAND_TTL_MS  = 120000; // older Feed now requests are left to the app
+ const unsigned long DISPENSE_MAX_MS = 15000;  // longest the gate stays open for one feeding
+@@ -186,6 +197,9 @@
+ Servo myServo;
+ Preferences prefs;       // used by loop() (scale) and the network task (account, cache)
+ SemaphoreHandle_t prefsLock;
++SemaphoreHandle_t rtcLock;  // the RTC bus (Wire1) is used from both cores
++char rtcTimeStr[20] = "";   // last good RTC reading, "YYYY-MM-DDTHH:MM:SS" local time
++unsigned long lastRtcRead = 0;
+ 
+ bool rtcOk = false;
+ bool hxOk  = false;
+@@ -229,6 +243,7 @@
+   bool  gateOpen;
+   unsigned long gateCloseAt; // millis(), HW_GATE only
+   HwState state;
++  char rtcTime[20];          // RTC reading for status/rtcTime ("" = none)
+ };
+ 
+ // History written while offline is sent when the connection is back.
+@@ -261,6 +276,13 @@
+ volatile bool portalOpen = false;
+ volatile bool setupRequested = false;   // BOOT button or 'w'
+ volatile bool forgetRequested = false;  // 'x'
++volatile bool calibrationChanged = false; // 'c' finished: send config/calibrationStatus again
++
++// Wi-Fi diagnostics, written by the Wi-Fi event callback, printed by the network task.
++volatile uint32_t wifiDropCount = 0;
++volatile uint8_t  wifiLastReason = 0;
++volatile int8_t   wifiLastDropRssi = 0;
++volatile bool     wifiGotIp = false;
+ 
+ // ---- Buzzer (non-blocking) ------------------------------------------
+ void buzzerOn()  { digitalWrite(BUZZER_PIN, BUZZER_ACTIVE_LOW ? LOW : HIGH); }
+@@ -290,6 +312,7 @@
+   snap.gateOpen = servoOpen;
+   snap.gateCloseAt = gateCloseAt;
+   snap.state = hwState;
++  strlcpy(snap.rtcTime, rtcTimeStr, sizeof(snap.rtcTime));
+   portEXIT_CRITICAL(&snapMux);
+ }
+ 
+@@ -341,7 +364,8 @@
+   }
+   if (c.type == CMD_GATE_OPEN) {
+     openGate();
+-    gateCloseAt = now + min(c.durationMs, GATE_MAX_MS);
++    // durationMs 0 = hold open until CLOSE (gateCloseAt 0 = no timer)
++    gateCloseAt = c.durationMs == 0 ? 0 : now + min(c.durationMs, GATE_MAX_MS);
+     hwState = HW_GATE;
+   } else if (c.type == CMD_DISPENSE) {
+     if (!scaleUsable() || hwState != HW_IDLE) {
+@@ -363,7 +387,19 @@
+   while (xQueueReceive(cmdQueue, &c, 0) == pdTRUE) handleHwCommand(c);
+ 
+   unsigned long now = millis();
+-  if (hwState == HW_GATE && (long)(now - gateCloseAt) >= 0) {
++  static unsigned long heldOfflineSince = 0;
++  if (hwState == HW_GATE && gateCloseAt == 0) {          // held open by the app
++    if (netOnline) {
++      heldOfflineSince = 0;
++    } else if (!heldOfflineSince) {
++      heldOfflineSince = now;
++    } else if (now - heldOfflineSince >= GATE_OFFLINE_CLOSE_MS) {
++      closeGate();                          // fail-safe: the app can no longer close it
++      hwState = HW_IDLE;
++      heldOfflineSince = 0;
++      Serial.println("Gate closed: no Firebase connection while held open");
++    }
++  } else if (hwState == HW_GATE && (long)(now - gateCloseAt) >= 0) {
+     closeGate();                            // auto-close, no network needed
+     hwState = HW_IDLE;
+   } else if (hwState == HW_DISPENSE) {
+@@ -439,34 +475,57 @@
+   hwState = HW_CALIBRATING;
+   publishSnapshot();
+ 
+-  Serial.println("Calibration: remove everything from the scale. Taring in 3 seconds...");
++  // Kept so a cancelled calibration changes nothing (it used to re-tare with
++  // whatever was on the scale, which left a wrong zero).
++  const long oldOffset = scale.get_offset();
++  const float oldFactor = calibrationFactor;
++  auto cancel = [&](const char* why) {
++    Serial.printf("Calibration cancelled: %s. The previous zero and factor are kept.\n", why);
++    scale.set_offset(oldOffset);
++    scale.set_scale(oldFactor);
++    calibrationFactor = oldFactor;
++    lcdShow("Calibration", "cancelled");
++    delay(1500);
++    hwState = HW_IDLE;
++  };
++
++  Serial.println("Calibration step 1/2: leave the EMPTY hopper on the scale. Taring in 3 seconds...");
++  lcdShow("CAL 1/2: empty", "taring in 3 s");
+   delay(3000);
+   scale.set_scale();
+   scale.tare();
+ 
+-  Serial.println("Put a KNOWN weight on the scale, type its weight in grams, press Enter.");
++  // Anything typed during the countdown is discarded here, so type the
++  // weight only after this prompt.
+   while (Serial.available()) Serial.read();
+-  while (!Serial.available()) delay(50);
++  Serial.println("Calibration step 2/2: put a KNOWN weight in the hopper, then type its weight "
++                 "in grams (e.g. 500) and press Enter. You have 2 minutes.");
++  lcdShow("CAL 2/2: add wt", "type grams+Enter");
++  unsigned long waitStart = millis();
++  while (!Serial.available()) {
++    if (millis() - waitStart > 120000) { cancel("no weight typed within 2 minutes"); return; }
++    delay(50);
++  }
+   float knownGrams = Serial.parseFloat();
++  while (Serial.available()) Serial.read();  // the rest of the line
+ 
+-  if (knownGrams <= 0) {
+-    Serial.println("Invalid weight. Cancelled.");
+-    scale.set_scale(calibrationFactor);
+-    scale.tare();
+-    saveScale();
+-    hwState = HW_IDLE;
+-    return;
+-  }
++  if (knownGrams <= 0 || knownGrams > 5000) { cancel("type a weight between 1 and 5000 g"); return; }
+ 
+   delay(1000);
+   float raw = scale.get_value(15);
++  if (fabs(raw) < 1000) {                    // the reading barely changed: nothing was placed
++    cancel("the scale did not change; was the known weight placed in the hopper?");
++    return;
++  }
+   calibrationFactor = raw / knownGrams;
+   scale.set_scale(calibrationFactor);
+   weightGrams = knownGrams;
++  lcdShow("Calibration", "done, saved");
+   calibrated = true;
+   saveScale();
+   xSemaphoreTake(prefsLock, portMAX_DELAY);
+   prefs.putBool("calibrated", true);
++  calibrationChanged = true;
+   xSemaphoreGive(prefsLock);
+ 
+   Serial.print("Done. calibrationFactor = ");
+@@ -475,6 +534,36 @@
+   hwState = HW_IDLE;
+ }
+ 
++// ---- RTC (DS3231 on Wire1), shared by both cores --------------------
++/** Reads the RTC; false when missing or the reading is not a real date. */
++bool rtcRead(DateTime& out) {
++  if (!rtcOk) return false;
++  xSemaphoreTake(rtcLock, portMAX_DELAY);
++  out = rtc.now();
++  xSemaphoreGive(rtcLock);
++  return out.year() >= 2024 && out.year() <= 2099 && out.month() >= 1 && out.month() <= 12 &&
++         out.day() >= 1 && out.day() <= 31 && out.hour() <= 23 && out.minute() <= 59 && out.second() <= 59;
++}
++
++void rtcWrite(const DateTime& t) {
++  xSemaphoreTake(rtcLock, portMAX_DELAY);
++  rtc.adjust(t);
++  xSemaphoreGive(rtcLock);
++}
++
++/** Called from loop() once a second: keeps rtcTimeStr for status/rtcTime. */
++void updateRtcReading() {
++  if (millis() - lastRtcRead < 1000) return;
++  lastRtcRead = millis();
++  DateTime n;
++  if (rtcRead(n)) {
++    snprintf(rtcTimeStr, sizeof(rtcTimeStr), "%04d-%02d-%02dT%02d:%02d:%02d",
++             n.year(), n.month(), n.day(), n.hour(), n.minute(), n.second());
++  } else {
++    rtcTimeStr[0] = 0;                      // not sent: the app shows "no RTC reading"
++  }
++}
++
+ // ---- LCD helpers ----------------------------------------------------
+ void lcdShow(const char* line1, const char* line2) {
+   char buf[17];
+@@ -497,7 +586,8 @@
+   if (clockValid() && getLocalTime(&lt, 0)) {
+     snprintf(t, sizeof(t), "%02d:%02d:%02d", lt.tm_hour, lt.tm_min, lt.tm_sec);
+   } else if (rtcOk) {
+-    DateTime now = rtc.now();
++    DateTime now;
++    rtcRead(now);
+     snprintf(t, sizeof(t), "%02d:%02d:%02d", now.hour(), now.minute(), now.second());
+   } else {
+     snprintf(t, sizeof(t), "RTC ERR ");
+@@ -516,6 +606,8 @@
+   } else if (feeding) {
+     float given = max(0.0f, jobStartG - weightGrams);
+     snprintf(line2, sizeof(line2), "Feed %d/%d g", (int)given, (int)jobTargetG);
++  } else if (hwState == HW_GATE && gateCloseAt == 0) {
++    snprintf(line2, sizeof(line2), "W:%.0f g  OPEN", weightGrams);
+   } else if (hwState == HW_GATE) {
+     long left = ((long)(gateCloseAt - millis()) + 999) / 1000;
+     snprintf(line2, sizeof(line2), "W:%.0f g  %lds", weightGrams, max(0L, left));
+@@ -546,6 +638,9 @@
+ long long serverOffsetMs = 0;     // server time = millis() + offset
+ bool serverTimeKnown = false;
+ unsigned long lastDbOk = 0;
++// Connection statistics, printed with the RSSI line every 30 s.
++uint32_t dbOkCount = 0, dbFailCount = 0;
++unsigned long dbMsTotal = 0, dbLastErrLog = 0, dbBackoffUntil = 0;
+ bool accountRejected = false;     // wrong email/password, or not provisioned
+ bool newAccount = false;          // saved in the portal: start over
+ 
+@@ -577,7 +672,10 @@
+   Serial.printf("Setup saved: feeder %s, account %s\n", feederId, deviceEmail);
+ }
+ 
++bool portalAuto = false;   // portal opened only because Wi-Fi was lost: close it once Wi-Fi is back
++
+ void openPortal() {
++  portalAuto = false;                     // the Wi-Fi-lost path sets it again right after this call
+   if (wm.getConfigPortalActive()) return;
+   pFeeder.setValue(feederId, 32);
+   pEmail.setValue(deviceEmail, 64);
+@@ -611,6 +709,13 @@
+   http.addHeader("Content-Type", contentType);
+   int code = http.POST(body);
+   if (code > 0) deserializeJson(out, http.getString());
++  else {                                  // -1 = no TCP/TLS connection: say why
++    char err[96] = "";
++    tls.lastError(err, sizeof(err));
++    Serial.printf("Firebase Auth: %s | TLS: %s | Wi-Fi %s RSSI %d dBm | free heap %u\n",
++                  http.errorToString(code).c_str(), err[0] ? err : "-",
++                  WiFi.status() == WL_CONNECTED ? "up" : "DOWN", (int)WiFi.RSSI(), ESP.getFreeHeap());
++  }
+   http.end();
+   return code;
+ }
+@@ -667,16 +772,42 @@
+ int dbCall(const char* method, const String& sub, const String& body, String* response) {
+   if (WiFi.status() != WL_CONNECTED || !idToken.length()) return -1;
+   String url = String("https://") + DATABASE_HOST + "/feeders/" + feederId + "/" + sub + ".json?auth=" + idToken;
+-  dbHttp.begin(dbTls, url);
+-  dbHttp.setConnectTimeout(8000);
+-  dbHttp.setTimeout(6000);
+-  if (body.length()) dbHttp.addHeader("Content-Type", "application/json");
+-  int code = dbHttp.sendRequest(method, body);
+-  String resp = code > 0 ? dbHttp.getString() : "";
+-  dbHttp.end();                           // keeps the TLS connection open for the next call
++  // A broken connection is retried once on a fresh one. POST is never retried:
++  // if only the reply was lost, a retry would add a duplicate history entry.
++  bool canRetry = strcmp(method, "POST") != 0;
++  int code = -1;
++  String resp;
++  unsigned long started = millis();
++  for (int attempt = 0; attempt < (canRetry ? 2 : 1); attempt++) {
++    dbHttp.begin(dbTls, url);
++    dbHttp.setConnectTimeout(5000);
++    dbHttp.setTimeout(6000);              // 4 s gave read timeouts on slow replies
++    if (body.length()) dbHttp.addHeader("Content-Type", "application/json");
++    code = dbHttp.sendRequest(method, body);
++    resp = code > 0 ? dbHttp.getString() : "";
++    dbHttp.end();                         // keeps the TLS connection open for the next call
++    if (code > 0) break;
++    dbTls.stop();                         // drop the broken connection
++    if (millis() - dbLastErrLog >= 10000) {   // at most one detailed line per 10 s
++      dbLastErrLog = millis();
++      char err[80] = "";
++      dbTls.lastError(err, sizeof(err));
++      Serial.printf("Firebase %s %s: %s | TLS: %s | RSSI %d dBm | heap %u\n", method, sub.c_str(),
++                    HTTPClient::errorToString(code).c_str(), err[0] ? err : "-", (int)WiFi.RSSI(),
++                    ESP.getFreeHeap());
++    }
++    if (WiFi.status() != WL_CONNECTED) break;
++    vTaskDelay(pdMS_TO_TICKS(300));       // let the old socket close before reconnecting
++  }
++  if (code > 0) {
++    dbOkCount++;
++    dbMsTotal += millis() - started;
++  } else {
++    dbFailCount++;
++    dbBackoffUntil = millis() + 2000;     // pause polling briefly instead of hammering a bad link
++  }
+   if (code == 200) lastDbOk = millis();
+   if (code == 401 && resp.indexOf("expired") >= 0) tokenRefreshAt = millis();   // refresh now
+-  if (code < 0) dbTls.stop();
+   if (response) *response = resp;
+   return code;
+ }
+@@ -843,31 +974,53 @@
+   bool lowNow = s.scaleOk && (alertState[0] == 1 ? s.weightG <= lowThresholdG + LOW_HYSTERESIS_G
+                                                  : s.weightG <= lowThresholdG);
+ 
+-  JsonDocument st;
+-  SV(st["lastSeen"]);
+-  st["condition"] = calibrating ? "unknown" : !s.scaleOk ? "error" : stuckFeed ? "jam" : lowNow ? "low_feed" : "ok";
+-  st["rssi"] = constrain((int)WiFi.RSSI(), -150, 0);
+-  st["firmware"] = FIRMWARE;
+-  st["source"] = "device";
+-  String resp;
+-  int code = dbJson("PUT", "status", st, &resp);
+-  if (code == 200) {
+-    JsonDocument back;                        // the server returns lastSeen resolved
+-    if (!deserializeJson(back, resp) && back["lastSeen"].is<long long>()) {
+-      learnServerTime(back["lastSeen"].as<long long>());
++  // Heartbeat (status) every STATUS_EVERY_MS or when the condition changes;
++  // the weight below goes out on every call.
++  static unsigned long lastStatusAt = 0;
++  static String lastCondition = "";
++  const char* condition = calibrating ? "unknown" : !s.scaleOk ? "error" : stuckFeed ? "jam" : lowNow ? "low_feed" : "ok";
++  if (lastStatusAt == 0 || millis() - lastStatusAt >= STATUS_EVERY_MS || lastCondition != condition) {
++    JsonDocument st;
++    SV(st["lastSeen"]);
++    st["condition"] = condition;
++    st["rssi"] = constrain((int)WiFi.RSSI(), -150, 0);
++    st["firmware"] = FIRMWARE;
++    if (s.rtcTime[0]) st["rtcTime"] = s.rtcTime;   // DS3231 local time, shown in the app
++    st["source"] = "device";
++    String resp;
++    int code = dbJson("PUT", "status", st, &resp);
++    if (code == 200) {
++      lastStatusAt = millis();
++      lastCondition = condition;
++      JsonDocument back;                      // the server returns lastSeen resolved
++      if (!deserializeJson(back, resp) && back["lastSeen"].is<long long>()) {
++        learnServerTime(back["lastSeen"].as<long long>());
++      }
++    } else if (code == 401 && resp.indexOf("expired") < 0) {
++      Serial.printf("Firebase refused feeder %s: is this device account provisioned for it?\n", feederId);
+     }
+-  } else if (code == 401 && resp.indexOf("expired") < 0) {
+-    Serial.printf("Firebase refused feeder %s: is this device account provisioned for it?\n", feederId);
+   }
+   if (calibrating) return;
+ 
+   if (s.scaleOk) {
+-    JsonDocument t;
+-    t["weightG"] = (int)lround(max(-500.0f, s.weightG));
+-    SV(t["measuredAt"]);
+-    t["quality"] = (feeding || s.gateOpen) ? "unstable" : "ok";
+-    t["source"] = "device";
+-    dbJson("PUT", "telemetry/current", t, nullptr);
++    // Send the weight when it changed (>= 2 g), while the gate is open or
++    // feeding, or at least every 5 s; a steady hopper does not need a write
++    // every second.
++    static int lastSentG = -100000;
++    static unsigned long lastSentAt = 0;
++    int w = (int)lround(max(0.0f, s.weightG));   // never negative (noise around empty)
++    bool busyNow = feeding || s.gateOpen;
++    if (busyNow || abs(w - lastSentG) >= 2 || millis() - lastSentAt >= 5000) {
++      JsonDocument t;
++      t["weightG"] = w;
++      SV(t["measuredAt"]);
++      t["quality"] = busyNow ? "unstable" : "ok";
++      t["source"] = "device";
++      if (dbJson("PUT", "telemetry/current", t, nullptr) == 200) {
++        lastSentG = w;
++        lastSentAt = millis();
++      }
++    }
+     writeAlert(0, "low_feed", "warning", lowNow);
+   }
+   writeAlert(1, "stuck_feed", "critical", stuckFeed);
+@@ -878,7 +1031,7 @@
+   Snapshot s = readSnapshot();
+   if (!s.scaleOk || s.state == HW_CALIBRATING) return;
+   JsonDocument m;
+-  m["weightG"] = (int)lround(s.weightG);
++  m["weightG"] = (int)lround(max(0.0f, s.weightG));
+   SV(m["ts"]);
+   m["source"] = "device";
+   dbJson("POST", "measurements", m, nullptr);
+@@ -893,7 +1046,7 @@
+   if (lastGateRequestId.length()) g["lastRequestId"] = lastGateRequestId;
+   if (result) g["lastResult"] = result;
+   if (reason) g["reason"] = reason;
+-  if (s.gateOpen && s.state == HW_GATE && serverTimeKnown) {
++  if (s.gateOpen && s.state == HW_GATE && s.gateCloseAt != 0 && serverTimeKnown) {
+     g["closesAt"] = serverNow() + (long)(s.gateCloseAt - millis());
+   }
+   if (dbJson("PUT", "gate/state", g, nullptr) == 200) reportedGate = s.gateOpen ? 1 : 0;
+@@ -972,10 +1125,9 @@
+     writeGateState("rejected", "Feeder is busy feeding");
+     return;
+   }
+-  int secs = constrain((int)(r["durationS"] | 5), 1, (int)(GATE_MAX_MS / 1000));
+-  sendHw(CMD_GATE_OPEN, secs * 1000UL, 0, 0);
++  sendHw(CMD_GATE_OPEN, 0, 0, 0);            // 0 = stay open until CLOSE (durationS ignored)
+   writeGateState("done", nullptr);
+-  Serial.printf("Gate open for %d s (app)\n", secs);
++  Serial.println("Gate open until CLOSE (app)");
+ }
+ 
+ // ---- Feed now (commands + activeCommand lock) ------------------------------------
+@@ -1021,7 +1173,15 @@
+   Snapshot s = readSnapshot();
+   if (!s.scaleOk) { finishCommandEarly(cid, amountG, "rejected", "Load cell not ready"); return; }
+   if (s.state != HW_IDLE) { finishCommandEarly(cid, amountG, "rejected", "Gate is open or feeder is busy"); return; }
++  if (!calibrated) { finishCommandEarly(cid, amountG, "rejected", "Scale not calibrated: hopper weight cannot be verified"); return; }
+   if (s.weightG <= NO_FLOW_MIN_G) { finishCommandEarly(cid, amountG, "rejected", "Hopper is empty"); return; }
++  if (s.weightG < amountG) {                // not enough feed for the requested amount
++    char why[96];
++    snprintf(why, sizeof(why), "Not enough feed: %d g in the hopper, %d g requested",
++             (int)lround(max(0.0f, s.weightG)), amountG);
++    finishCommandEarly(cid, amountG, "rejected", why);
++    return;
++  }
+ 
+   JsonDocument a;
+   a["status"] = "accepted";
+@@ -1100,7 +1260,10 @@
+ 
+     Serial.printf("Scheduled feed %02d:%02d: %d g%s\n", s.hh, s.mm, s.amountG, netOnline ? "" : " (offline)");
+     Snapshot now = readSnapshot();
+-    if (!now.scaleOk || now.state != HW_IDLE) {
++    if (!now.scaleOk || now.state != HW_IDLE || !calibrated || now.weightG < s.amountG) {
++      Serial.printf("Scheduled feed rejected: %s\n", !now.scaleOk ? "load cell not ready"
++                    : now.state != HW_IDLE ? "feeder busy" : !calibrated ? "scale not calibrated"
++                    : "not enough feed in the hopper");
+       recordHistory("scheduled", s.amountG, 0, "rejected", "scheduleId", s.id);
+       return;
+     }
+@@ -1117,9 +1280,8 @@
+ 
+ /** The DS3231 keeps local time; it sets the clock at boot and is corrected once online. */
+ void clockFromRtc() {
+-  if (!rtcOk) return;
+-  DateTime d = rtc.now();
+-  if (d.year() < 2024) return;
++  DateTime d;
++  if (!rtcRead(d)) return;
+   struct tm lt = {};
+   lt.tm_year = d.year() - 1900;
+   lt.tm_mon = d.month() - 1;
+@@ -1138,8 +1300,10 @@
+   struct tm lt;
+   if (!getLocalTime(&lt, 0)) return;
+   DateTime local(lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday, lt.tm_hour, lt.tm_min, lt.tm_sec);
+-  if (labs((long)(rtc.now().unixtime() - local.unixtime())) > 2) {
+-    rtc.adjust(local);
++  DateTime have;
++  bool ok = rtcRead(have);
++  if (!ok || labs((long)(have.unixtime() - local.unixtime())) > 2) {
++    rtcWrite(local);
+     Serial.println("RTC set from internet time");
+   }
+ }
+@@ -1156,6 +1320,18 @@
+   Serial.println("Wi-Fi and device account forgotten (calibration kept)");
+ }
+ 
++// ---- Wi-Fi events (runs in the Wi-Fi event task: only store, never print) ----------
++void onWifiEvent(arduino_event_id_t event, arduino_event_info_t info) {
++  if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
++    wifiLastReason = info.wifi_sta_disconnected.reason;
++    wifiLastDropRssi = info.wifi_sta_disconnected.rssi;
++    wifiDropCount = wifiDropCount + 1;
++    wifiGotIp = false;
++  } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
++    wifiGotIp = true;
++  }
++}
++
+ // ---- network task ------------------------------------------------------------------
+ void networkTask(void*) {
+   unsigned long lastPoll = 0, lastReport = 0, lastConfig = 0, lastMeasure = 0, lastMinute = 0;
+@@ -1175,6 +1351,8 @@
+   WiFi.mode(WIFI_STA);
+   WiFi.setAutoReconnect(true);
+   WiFi.persistent(true);
++  WiFi.onEvent(onWifiEvent);
++  if (WIFI_DISABLE_SLEEP) WiFi.setSleep(false);
+   wm.addParameter(&pFeeder);
+   wm.addParameter(&pEmail);
+   wm.addParameter(&pPassword);
+@@ -1199,6 +1377,46 @@
+       wm.process();
+     }
+     portalOpen = wm.getConfigPortalActive();
++
++    // -- Wi-Fi diagnostics: disconnect reason, RSSI, reconnect result --------
++    static uint32_t dropsLogged = 0, wifiTries = 0;
++    static unsigned long lastDropLog = 0, lastRssiLog = 0;
++    static bool wifiWasUp = false;
++    if (wifiDropCount != dropsLogged && now - lastDropLog >= 5000) {
++      uint32_t n = wifiDropCount;
++      uint8_t reason = wifiLastReason;
++      Serial.printf("Wi-Fi: disconnected, reason %u (%s), RSSI at drop %d dBm, %u event(s)\n",
++                    reason, WiFi.disconnectReasonName((wifi_err_reason_t)reason),
++                    (int)wifiLastDropRssi, (unsigned)(n - dropsLogged));
++      dropsLogged = n;
++      lastDropLog = now;
++    }
++    bool wifiUp = WiFi.status() == WL_CONNECTED;
++    if (wifiUp && !wifiWasUp) {
++      Serial.printf("Wi-Fi: connected to \"%s\" ch %d, RSSI %d dBm, IP %s (retries %u)\n",
++                    WiFi.SSID().c_str(), WiFi.channel(), (int)WiFi.RSSI(),
++                    WiFi.localIP().toString().c_str(), (unsigned)wifiTries);
++      wifiTries = 0;
++      lastRssiLog = now;
++      if (portalOpen && portalAuto) {         // opened only because Wi-Fi was lost
++        wm.stopConfigPortal();
++        portalOpen = false;
++        Serial.println("Wi-Fi: back on the saved network, setup portal closed");
++      }
++    } else if (!wifiUp && wifiWasUp) {
++      Serial.printf("Wi-Fi: link lost, retrying the saved network every %lu s\n", WIFI_RETRY_MS / 1000);
++    }
++    wifiWasUp = wifiUp;
++    if (wifiUp && now - lastRssiLog >= WIFI_RSSI_LOG_MS) {
++      lastRssiLog = now;
++      Serial.printf("Wi-Fi: RSSI %d dBm (ch %d), Firebase %s | last 30 s: %u ok, %u failed, avg %lu ms\n",
++                    (int)WiFi.RSSI(), WiFi.channel(), netOnline ? "online" : "offline",
++                    (unsigned)dbOkCount, (unsigned)dbFailCount,
++                    dbOkCount ? dbMsTotal / dbOkCount : 0UL);
++      dbOkCount = dbFailCount = 0;
++      dbMsTotal = 0;
++    }
++
+     if (newAccount) {
+       newAccount = false;
+       retryAt = 0;
+@@ -1218,11 +1436,21 @@
+       netOnline = false;
+       started = false;
+       if (!portalOpen && now - wifiLostAt > WIFI_GIVE_UP_MS) {
+-        Serial.println("Wi-Fi: saved network not reachable");
++        Serial.println("Wi-Fi: saved network not reachable; opening setup, still retrying it");
+         openPortal();
++        portalAuto = true;
+         wifiLostAt = now;
+-      } else if (!portalOpen && wm.getWiFiIsSaved() && now - lastWifiTry > 20000) {
++      }
++      // Keep retrying the saved network even while the portal is open, except
++      // while a phone is joined to AgriFeed-Setup (a retry changes the channel
++      // and would drop that phone).
++      if (wm.getWiFiIsSaved() && now - lastWifiTry > WIFI_RETRY_MS &&
++          !(portalOpen && WiFi.softAPgetStationNum() > 0)) {
++        if (wifiTries) Serial.printf("Wi-Fi: retry %u failed (status %d)\n", (unsigned)wifiTries, (int)WiFi.status());
+         lastWifiTry = now;
++        wifiTries++;
++        Serial.printf("Wi-Fi: retry %u on the saved network%s\n", (unsigned)wifiTries,
++                      portalOpen ? " (setup portal open)" : "");
+         WiFi.begin();                        // try the saved network again
+       }
+       continue;
+@@ -1253,11 +1481,23 @@
+       writeGateState(nullptr, nullptr);
+       measure();
+       lastReport = lastConfig = lastMeasure = lastMinute = now;
+-      started = lastDbOk != 0 && now - lastDbOk < 5000;
++      // millis(), not now: lastDbOk was set after now was read, so now - lastDbOk
++      // would wrap around and the feeder would never leave this start-up block.
++      started = lastDbOk != 0 && millis() - lastDbOk < 5000;
+       if (!started) { retryAt = millis() + 10000; continue; }
+       Serial.printf("Firebase: connected, feeder %s (%s)\n", feederId, WiFi.SSID().c_str());
+     }
+ 
++    if (calibrationChanged) {                // tell the app right away, not only after a restart
++      JsonDocument cal;
++      cal.set(calibrated ? "calibrated" : "uncalibrated");
++      if (dbJson("PUT", "config/calibrationStatus", cal, nullptr) == 200) calibrationChanged = false;
++    }
++
++    // Short pause after a failed call; the hardware (gate, feeding) keeps
++    // running on the other core meanwhile.
++    if ((long)(millis() - dbBackoffUntil) < 0) continue;
++
+     finishJob();
+     flushHistory();
+ 
+@@ -1270,7 +1510,7 @@
+       if (!job.active) pollCommand();
+     }
+     bool busy = job.active || s.gateOpen;
+-    if (now - lastReport >= (busy ? 1000UL : 5000UL)) { lastReport = now; report(); }
++    if (now - lastReport >= (busy ? REPORT_BUSY_MS : REPORT_IDLE_MS)) { lastReport = now; report(); }
+     if (now - lastConfig >= 15000) { lastConfig = now; pollConfig(); pollSchedules(); }
+     if (now - lastMeasure >= 60000) { lastMeasure = now; measure(); }
+     if (now - lastMinute >= 60000) { lastMinute = now; pollTimezone(); syncRtc(); }
+@@ -1318,6 +1558,7 @@
+   // Saved tare + calibration. The hopper may hold feed when the power comes
+   // back, so the zero is only taken on the very first start (or with 't').
+   prefsLock = xSemaphoreCreateMutex();
++  rtcLock = xSemaphoreCreateMutex();
+   prefs.begin("agrifeed", false);
+   calibrationFactor = prefs.getFloat("factor", calibrationFactor);
+   calibrated = prefs.getBool("calibrated", false);
+@@ -1371,9 +1612,10 @@
+       rawMode = !rawMode;
+       Serial.println(rawMode ? "Raw mode ON (feeding disabled)" : "Grams mode ON");
+     } else if (cmd == 's') {
+-      Serial.printf("Wi-Fi %s %s, Firebase %s, feeder %s, account %s, calibrated %s\n",
++      Serial.printf("Wi-Fi %s %s RSSI %d dBm, Firebase %s, feeder %s, account %s, calibrated %s\n",
+                     WiFi.status() == WL_CONNECTED ? WiFi.SSID().c_str() : "down",
+                     WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString().c_str() : "",
++                    WiFi.status() == WL_CONNECTED ? (int)WiFi.RSSI() : 0,
+                     netOnline ? "online" : "offline", feederId[0] ? feederId : "(none)",
+                     deviceEmail[0] ? deviceEmail : "(none)", calibrated ? "yes" : "no");
+     } else if (cmd == 'w') {
+@@ -1400,6 +1642,7 @@
+   updateWeight();
+   updateGate();
+   updateBuzzer();
++  updateRtcReading();
+   publishSnapshot();
+ 
+   if (millis() - lastLcdUpdate >= LCD_REFRESH_MS) {

@@ -1,11 +1,18 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
-// Palette taken from the reference design: cream, white cards, peach, charcoal.
-const Color kBg = Color(0xFFF4F1EA);
-const Color kBeige = Color(0xFFE6E3D6);
-const Color kOrange = Color(0xFFFF9F6B);
-const Color kInk = Color(0xFF262626);
+// Palette from the PoultryPro-style reference: light grey page, white
+// cards, amber accent, sky-blue welcome screen, indigo and rose for charts.
+const Color kBg = Color(0xFFF6F7FB);
+const Color kBeige = Color(0xFFECEEF4); // tracks, chips, quiet panels
+const Color kAmber = Color(0xFFF7B731);
+const Color kAmberSoft = Color(0xFFFDEFC8);
+const Color kBlue = Color(0xFF2B7BB9);
+const Color kIndigo = Color(0xFF3F3DB8);
+const Color kIndigoSoft = Color(0xFFD4D3F5);
+const Color kRose = Color(0xFFE57586);
+const Color kRoseSoft = Color(0xFFF9DCE1);
+const Color kInk = Color(0xFF1E2230);
 
 /// Hopper level drawn as a ring of rounded blocks (like the calorie gauge).
 class SegmentGauge extends StatelessWidget {
@@ -81,6 +88,8 @@ class IconBox extends StatelessWidget {
       padding: const EdgeInsets.all(6),
       child: Material(
         color: Colors.white,
+        elevation: 1,
+        shadowColor: Colors.black12,
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
@@ -96,7 +105,8 @@ class IconBox extends StatelessWidget {
   }
 }
 
-/// Dark floating bar with an orange centre button (quick dispense).
+/// White floating bar: the selected tab sits in an amber circle and the
+/// centre button (Feeding) is an amber rounded square.
 class PillNav extends StatelessWidget {
   const PillNav({
     super.key,
@@ -111,24 +121,44 @@ class PillNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget item(IconData icon, int i) => IconButton(
-          onPressed: () => onTap(i),
-          icon: Icon(
-            icon,
-            size: 26,
-            color: index == i ? Colors.white : Colors.white38,
+    Widget item(IconData icon, int i) {
+      final on = index == i;
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => onTap(i),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: 46,
+          height: 46,
+          decoration: BoxDecoration(
+            color: on ? kAmber : Colors.transparent,
+            shape: BoxShape.circle,
           ),
-        );
+          child: Icon(
+            icon,
+            size: 24,
+            color: on ? Colors.white : Colors.black38,
+          ),
+        ),
+      );
+    }
 
     return SafeArea(
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
         child: Container(
-          height: 70,
+          height: 68,
           decoration: BoxDecoration(
-            color: kInk,
-            borderRadius: BorderRadius.circular(35),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(34),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x14000000),
+                blurRadius: 18,
+                offset: Offset(0, 6),
+              ),
+            ],
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -138,21 +168,61 @@ class PillNav extends StatelessWidget {
               GestureDetector(
                 onTap: onCenter,
                 child: Container(
-                  width: 54,
-                  height: 54,
+                  width: 50,
+                  height: 50,
                   decoration: BoxDecoration(
-                    color: kOrange,
-                    borderRadius: BorderRadius.circular(18),
+                    color: kInk,
+                    borderRadius: BorderRadius.circular(16),
                   ),
                   child: Transform.rotate(
                     angle: -math.pi / 12,
-                    child: const Icon(Icons.grain, color: Colors.white, size: 28),
+                    child: const Icon(Icons.grain, color: kAmber, size: 26),
                   ),
                 ),
               ),
-              item(Icons.history_rounded, 2),
-              item(Icons.settings_rounded, 3),
+              item(Icons.bar_chart_rounded, 2),
+              item(Icons.person_rounded, 3),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Tall rounded bar with a filled part from the bottom, as in the
+/// reference's analytics chart. [fraction] is clamped to 0..1.
+class BarMeter extends StatelessWidget {
+  const BarMeter({
+    super.key,
+    required this.fraction,
+    required this.color,
+    required this.track,
+    this.width = 54,
+  });
+
+  final double fraction;
+  final Color color;
+  final Color track;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    final f = fraction.isNaN ? 0.0 : fraction.clamp(0.0, 1.0);
+    return Container(
+      width: width,
+      decoration: BoxDecoration(
+        color: track,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      alignment: Alignment.bottomCenter,
+      child: FractionallySizedBox(
+        heightFactor: f,
+        widthFactor: 1,
+        child: Container(
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(8),
           ),
         ),
       ),

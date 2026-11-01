@@ -67,12 +67,17 @@ void main() {
         EnvDecision.emulator,
       );
     });
-    test('production is blocked in this build', () {
+    test('production is used only when enabled and asked for by name', () {
       expect(
         decideEnvironment('production', productionEnabled: false),
         EnvDecision.productionBlocked,
       );
-      expect(kProductionEnabled, isFalse);
+      expect(
+        decideEnvironment('production', productionEnabled: true),
+        EnvDecision.production,
+      );
+      expect(kEnvName, 'emulator'); // the default build stays on the emulator
+      expect(kProductionProjectId.startsWith('demo-'), isFalse);
     });
     test('unknown names are rejected rather than defaulted', () {
       expect(

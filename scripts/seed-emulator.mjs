@@ -1,4 +1,5 @@
-// Creates repeatable test accounts and feeders in the LOCAL emulator.
+// Creates repeatable test accounts and the one AgriFeed machine (assigned
+// to owner@agrifeed.test) in the LOCAL emulator.
 //
 //   npm run seed
 //
@@ -12,7 +13,6 @@ const PASSWORD = process.env.SEED_PASSWORD || randomBytes(9).toString('base64url
 const ACCOUNTS = [
   { key: 'admin', email: 'admin@agrifeed.test', name: 'Platform Admin', verified: true },
   { key: 'owner', email: 'owner@agrifeed.test', name: 'Farm Owner', verified: true },
-  { key: 'member', email: 'member@agrifeed.test', name: 'Farm Helper', verified: true },
   { key: 'outsider', email: 'outsider@agrifeed.test', name: 'Unrelated User', verified: true },
   { key: 'suspended', email: 'suspended@agrifeed.test', name: 'Suspended User', verified: true },
   { key: 'unverified', email: 'unverified@agrifeed.test', name: 'Unverified User', verified: false },
@@ -39,8 +39,10 @@ for (const a of ACCOUNTS) {
 
 await db.ref().set(null);
 const now = Date.now();
-const live = feederId();
-const sim = feederId();
+// One machine, driven by the simulator during development (mode
+// 'simulated', so its data must say source 'simulator'). Capacity is
+// provisional: 2,500 g usable on a 3 kg load cell, not yet calibrated.
+const feeder = feederId();
 
 const profiles = {};
 for (const a of ACCOUNTS.filter((x) => x.verified)) {
@@ -51,25 +53,15 @@ await db.ref().update({
   users: profiles,
   accountStatus: { [uids.suspended]: { suspended: true, reason: 'Seeded test suspension', updatedAt: now, updatedBy: 'seed' } },
   userFeeders: {
-    [uids.owner]: { [live]: { role: 'owner', addedAt: now }, [sim]: { role: 'owner', addedAt: now } },
-    [uids.member]: { [live]: { role: 'member', addedAt: now } },
+    [uids.owner]: { [feeder]: { role: 'owner', addedAt: now } },
   },
   deviceRegistry: {
-    [live]: { status: 'provisioned', mode: 'live', ownerUid: uids.owner, credentialVersion: 1, provisionedAt: now },
-    [sim]: { status: 'provisioned', mode: 'simulated', ownerUid: uids.owner, credentialVersion: 1, provisionedAt: now },
+    [feeder]: { status: 'provisioned', mode: 'simulated', ownerUid: uids.owner, credentialVersion: 1, provisionedAt: now },
   },
   feeders: {
-    [live]: {
-      meta: { name: 'Seeded coop (live)', ownerUid: uids.owner, mode: 'live', timezone: 'Asia/Manila', createdAt: now },
-      config: { capacityG: 3000, lowThresholdG: 500, loadCellMaxG: 3000, maxDispenseG: 200, calibrationStatus: 'uncalibrated' },
-      members: {
-        [uids.owner]: { role: 'owner', status: 'active', addedAt: now },
-        [uids.member]: { role: 'member', status: 'active', addedAt: now, addedBy: uids.owner, permissions: { viewDashboard: true, viewHistory: true } },
-      },
-    },
-    [sim]: {
-      meta: { name: 'Seeded virtual feeder', ownerUid: uids.owner, mode: 'simulated', timezone: 'Asia/Manila', createdAt: now },
-      config: { capacityG: 3000, lowThresholdG: 500, loadCellMaxG: 3000, maxDispenseG: 200, calibrationStatus: 'uncalibrated' },
+    [feeder]: {
+      meta: { name: 'AgriFeed', ownerUid: uids.owner, mode: 'simulated', timezone: 'Asia/Manila', createdAt: now },
+      config: { capacityG: 2500, lowThresholdG: 500, loadCellMaxG: 3000, maxDispenseG: 200, calibrationStatus: 'uncalibrated', schedulesPaused: false },
       members: { [uids.owner]: { role: 'owner', status: 'active', addedAt: now } },
     },
   },
@@ -79,6 +71,5 @@ await makeAdmin(uids.admin, 'seed-script');
 
 console.log('Seeded the emulator. Password for every account (this run only):', PASSWORD);
 for (const a of ACCOUNTS) console.log(`  ${a.key.padEnd(10)} ${a.email.padEnd(26)} uid=${uids[a.key]}`);
-console.log(`  live feeder      ${live}`);
-console.log(`  virtual feeder   ${sim}`);
+console.log(`  feeder           ${feeder}  (owner's machine, simulated)`);
 process.exit(0);

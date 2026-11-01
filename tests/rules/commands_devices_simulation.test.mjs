@@ -97,6 +97,37 @@ describe('device reporting (live feeder)', () => {
     await assertFails(db.ref(P('telemetry/current')).set({ weightG: 'heavy', measuredAt: NOW, quality: 'ok', source: 'device' }));
   });
 
+  test('owner asks for calibration; only the device reports the result', async () => {
+    const owner = as.user('owner1');
+    const req = (x) => ({ id: 'cal12345', requestedAt: NOW, requestedBy: 'owner1', ...x });
+    await assertSucceeds(owner.ref(P('calibration/request')).set(req({ action: 'tare' })));
+    await assertSucceeds(owner.ref(P('calibration/request')).set(req({ action: 'calibrate', knownG: 500 })));
+    await assertFails(owner.ref(P('calibration/request')).set(req({ action: 'calibrate', knownG: 0 })));
+    await assertFails(owner.ref(P('calibration/request')).set(req({ action: 'reset' })));
+    await assertFails(owner.ref(P('calibration/request')).set(req({ action: 'tare', requestedBy: 'someoneElse' })));
+    await assertFails(as.user('feeder2').ref(P('calibration/request')).set({ ...req({ action: 'tare' }), requestedBy: 'feeder2' }));
+    await assertFails(owner.ref(P('calibration/state')).set({ lastRequestId: 'cal12345', result: 'done', reportedAt: NOW, source: 'device' }));
+
+    const dev = devF();
+    await assertSucceeds(dev.ref(P('calibration/request')).once('value'));
+    await assertSucceeds(
+      dev.ref(P('calibration/state')).set({ lastRequestId: 'cal12345', action: 'calibrate', result: 'done', reportedAt: NOW, source: 'device' }),
+    );
+    await assertFails(dev.ref(P('calibration/state')).set({ lastRequestId: 'cal12345', result: 'great', reportedAt: NOW, source: 'device' }));
+    await assertFails(dev.ref(P('calibration/request')).set(req({ action: 'tare' })));
+    await assertSucceeds(owner.ref(P('calibration/state')).once('value'));
+  });
+
+  test('device reports its RTC time in status/rtcTime', async () => {
+    const db = devF();
+    const base = { lastSeen: NOW, condition: 'ok', source: 'device' };
+    await assertSucceeds(db.ref(P('status')).set({ ...base, rtcTime: '2026-11-01T14:05:09' }));
+    await assertFails(db.ref(P('status')).set({ ...base, rtcTime: 1793540000000 }));
+    await assertFails(db.ref(P('status')).set({ ...base, rtcTime: '01/11/2026 14:05' }));
+    await assertFails(db.ref(P('status')).set({ ...base, rtcTime: '2026-11-01 14:05:09' }));
+    await assertFails(db.ref(P('status')).set({ ...base, rtcClock: '2026-11-01T14:05:09' })); // other fields still denied
+  });
+
   test('device history is append-only', async () => {
     const db = devF();
     await assertFails(db.ref(P('history/h1/actualG')).set(10));
@@ -140,6 +171,50 @@ describe('device authorization is checked live against the registry', () => {
   test('wrong device UID or wrong mode is rejected', async () => {
     await assertFails(as.device('dev_X', F, 'live', 2).ref(P('status')).set(statusOk));
     await assertFails(as.device('dev_F', F, 'simulated', 2).ref(P('status')).set({ ...statusOk, source: 'simulator' }));
+  });
+});
+
+describe('ESP32 email/password device account', () => {
+  const statusOk = { lastSeen: NOW, condition: 'ok', source: 'device' };
+  const pwDevice = (uid, provider = 'password', extra = {}) =>
+    as.raw(uid, { firebase: { sign_in_provider: provider }, ...extra });
+  const bind = (uid = 'esp_F') =>
+    arrange((a) =>
+      a.ref().update({
+        [`deviceRegistry/${F}/deviceUid`]: uid,
+        [`deviceRegistry/${F}/authMethod`]: 'password',
+        [`deviceAccounts/${uid}`]: { feederId: F },
+      }),
+    );
+
+  test('the bound account reports and finishes commands', async () => {
+    await bind();
+    const db = pwDevice('esp_F');
+    await assertSucceeds(db.ref(P('status')).set(statusOk));
+    await assertSucceeds(db.ref(P('telemetry/current')).set({ weightG: 900, measuredAt: NOW, quality: 'ok', source: 'device' }));
+    await assertSucceeds(db.ref(P('commands/cDisp')).update({ status: 'completed', actualG: 48, completedAt: NOW, executedBy: 'device' }));
+  });
+
+  test('without authMethod "password" in the registry it is rejected', async () => {
+    await arrange((a) => a.ref(`deviceRegistry/${F}/deviceUid`).set('esp_F'));
+    await assertFails(pwDevice('esp_F').ref(P('status')).set(statusOk));
+  });
+
+  test('another account, another provider, or a revoked registry is rejected', async () => {
+    await bind();
+    await assertFails(pwDevice('esp_X').ref(P('status')).set(statusOk));
+    await assertFails(pwDevice('esp_F', 'google.com').ref(P('status')).set(statusOk));
+    await assertFails(pwDevice('esp_F').ref(`feeders/${G}/status`).set(statusOk));
+    await arrange((a) => a.ref(`deviceRegistry/${F}/status`).set('revoked'));
+    await assertFails(pwDevice('esp_F').ref(P('status')).set(statusOk));
+  });
+
+  test('a device account is never treated as a person, even if verified', async () => {
+    await bind('owner1');
+    const db = pwDevice('owner1', 'password', { email_verified: true });
+    await assertFails(db.ref(P('config/capacityG')).set(2000));
+    await assertFails(db.ref(P('gate/request')).set({ id: 'gate12345', action: 'open', durationS: 5, requestedAt: NOW, requestedBy: 'owner1' }));
+    await assertFails(db.ref('users/owner1').get());
   });
 });
 

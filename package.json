@@ -16,6 +16,10 @@
     "test:functions:app": "node scripts/run-with-emulators.mjs auth,database,functions -- npx vitest run tests/functions/app_contract.test.mjs",
     "test": "npm run test:rules && npm run test:functions",
     "seed": "node scripts/seed-emulator.mjs",
+    "simulator": "node scripts/simulator.mjs",
+    "device:provision": "node scripts/provision-device.mjs",
+    "production:rules": "node scripts/deploy-production-rules.mjs",
+    "production:provision": "node scripts/provision-production.mjs",
     "bootstrap-admin": "node scripts/bootstrap-admin.mjs",
     "emulators:lan": "npm run rules:build && npm run functions:build && node scripts/emulators-lan.mjs"
   },

@@ -26,6 +26,7 @@ class FeederSummary {
     required this.role,
     required this.name,
     required this.mode,
+    this.timezone = 'UTC',
     this.archived = false,
     this.permissions = const {},
   });
@@ -36,6 +37,9 @@ class FeederSummary {
 
   /// 'simulated' or 'live' (set by the backend, never by the app).
   final String mode;
+
+  /// IANA zone the feeder's schedules run in (`meta.timezone`).
+  final String timezone;
   final bool archived;
   final Map<String, bool> permissions;
 
@@ -53,11 +57,13 @@ class FeederSummary {
       other.role == role &&
       other.name == name &&
       other.mode == mode &&
+      other.timezone == timezone &&
       other.archived == archived &&
       mapEquals(other.permissions, permissions);
 
   @override
-  int get hashCode => Object.hash(feederId, role, name, mode, archived);
+  int get hashCode =>
+      Object.hash(feederId, role, name, mode, timezone, archived);
 }
 
 /// Builds a summary from `feeders/{id}/meta` and `feeders/{id}/members/{uid}`.
@@ -86,14 +92,15 @@ FeederSummary? summarize({
         ? meta['name'] as String
         : 'Unnamed feeder',
     mode: meta['mode'] == 'live' ? 'live' : 'simulated',
+    timezone: meta['timezone'] is String ? meta['timezone'] as String : 'UTC',
     archived: meta['archivedAt'] != null,
     permissions: {for (final p in kFeederPermissions) p: perms[p] == true},
   );
 }
 
-/// Pure selection rule: keep the current choice while it is still
-/// accessible, else the saved one, else the only feeder; with several and
-/// no valid choice, return null so the user picks.
+/// Pure selection rule (one feeder per account): keep the current choice
+/// while it is still accessible, else the saved one, else the first
+/// available (owned first, then by name). Null only when there is none.
 String? resolveSelection({
   required List<String> available,
   String? current,
@@ -101,8 +108,7 @@ String? resolveSelection({
 }) {
   if (current != null && available.contains(current)) return current;
   if (saved != null && available.contains(saved)) return saved;
-  if (available.length == 1) return available.single;
-  return null;
+  return available.isEmpty ? null : available.first;
 }
 
 /// Database access for [FeederSelectionController]; faked in widget tests.
@@ -290,14 +296,6 @@ class FeederSelectionController extends ChangeNotifier {
     _notify();
   }
 
-  /// Back to the feeder list (only meaningful with several feeders).
-  void clearSelection() {
-    _selectedId = null;
-    _pendingId = null;
-    _saved = null; // otherwise the saved feeder would be re-selected at once
-    _reselect();
-  }
-
   void _apply(String feederId) {
     if (_selectedId == feederId) return;
     _selectedId = feederId;
@@ -371,7 +369,7 @@ class FeederSelectionController extends ChangeNotifier {
     final available = feeders.map((f) => f.feederId).toList();
 
     // While a feeder is still loading, keep the current choice: it may be
-    // about to resolve, and dropping it would flash the chooser.
+    // about to resolve, and dropping it would flash the empty state.
     final current = _selectedId;
     final currentPending =
         current != null &&

@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:agrifeed/services/feeder_live.dart';
+import 'package:agrifeed/services/feeder_repository.dart';
 import 'package:agrifeed/services/feeder_selection.dart';
 
 /// One database location: like an RTDB `onValue` listener, every new
@@ -71,9 +73,11 @@ class FakeFeederSource implements FeederDataSource {
     String mode = 'simulated',
     Map<String, bool> permissions = const {'viewDashboard': true},
     bool archived = false,
+    String timezone = 'Asia/Manila',
   }) {
     meta(id).add({
       'name': name,
+      'timezone': timezone,
       'ownerUid': owner ? 'u1' : 'someone',
       'mode': mode,
       if (archived) 'archivedAt': 1,
@@ -88,3 +92,56 @@ class FakeFeederSource implements FeederDataSource {
 
 /// Lets queued stream events and futures run.
 Future<void> flush() => Future<void>.delayed(Duration.zero);
+
+/// In-memory [FeederRepository]: alerts per feeder, and a log of writes.
+class FakeFeederRepository implements FeederRepository {
+  final writes = <String>[];
+  final _alerts = <String, FakeLocation<List<FeederAlert>>>{};
+
+  /// Set to make the next write fail like a rules denial.
+  Object? failWith;
+
+  FakeLocation<List<FeederAlert>> alerts(String id) =>
+      _alerts.putIfAbsent(id, FakeLocation.new);
+
+  @override
+  Stream<List<FeederAlert>> watchAlerts(String feederId) =>
+      alerts(feederId).stream;
+
+  Future<void> _write(String entry) async {
+    if (failWith != null) throw failWith!;
+    writes.add(entry);
+  }
+
+  @override
+  Future<void> rename(String feederId, String name) =>
+      _write('name:$feederId:$name');
+
+  @override
+  Future<void> setTimezone(String feederId, String timezone) =>
+      _write('timezone:$feederId:$timezone');
+}
+
+/// In-memory [FeederLive]: one [FakeLocation] per absolute path, and a log
+/// of every update the app sends.
+class FakeFeederLive implements FeederLive {
+  final updates = <Map<String, Object?>>[];
+  final _paths = <String, FakeLocation<Object?>>{};
+  var _keys = 0;
+
+  FakeLocation<Object?> at(String path) =>
+      _paths.putIfAbsent(path, FakeLocation.new);
+
+  @override
+  Stream<Object?> watch(String path, {String? orderBy, int? last}) =>
+      at(path).stream;
+
+  @override
+  Future<void> update(Map<String, Object?> values) async => updates.add(values);
+
+  @override
+  String newKey(String path) => 'k${_keys++}';
+
+  @override
+  Object get now => 0;
+}
